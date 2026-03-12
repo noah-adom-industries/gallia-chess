@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DAQ970A Monitor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────────── */
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      gap: 10px;
+    }
+    header h1 { font-size: 0.9rem; font-weight: 600; color: #e6edf3; white-space: nowrap; }
+
+    #status-badge {
+      font-size: 0.76rem; font-weight: 600;
+      padding: 3px 12px; border-radius: 20px;
+      background: #21262d; color: #8b949e; border: 1px solid #30363d;
+      transition: background 0.3s, color 0.3s; white-space: nowrap;
+    }
+    #status-badge.live    { background: #0d2a1c; color: #3fb950; border-color: #238636; }
+    #status-badge.stopped { background: #1a1a0d; color: #d29922; border-color: #6a4a00; }
+    #status-badge.error   { background: #2d1115; color: #f85149; border-color: #6e2828; }
+
+    /* ── Tab bar ─────────────────────────────────────────────────────────── */
+    #tab-bar {
+      background: #0d1117;
+      border-bottom: 1px solid #30363d;
+      display: flex;
+      align-items: stretch;
+      flex-shrink: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    #tab-bar::-webkit-scrollbar { display: none; }
+
+    .tab {
+      padding: 0 14px;
+      height: 34px;
+      display: flex; align-items: center; gap: 7px;
+      cursor: pointer;
+      font-size: 0.78rem; font-weight: 500;
+      color: #8b949e;
+      border-right: 1px solid #21262d;
+      white-space: nowrap;
+      user-select: none;
+      transition: background 0.15s, color 0.15s;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .tab:hover { background: #161b22; color: #c9d1d9; }
+    .tab.active { background: #161b22; color: #e6edf3; }
+    .tab.active::after {
+      content: '';
+      position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+      background: #388bfd;
+    }
+
+    .tab-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      flex-shrink: 0; background: #3fb950;
+    }
+    .tab-dot.err  { background: #f85149; box-shadow: 0 0 4px #f85149; }
+    .tab-dot.idle { background: #484800; }
+
+    .tab-close {
+      background: none; border: none; color: #8b949e;
+      cursor: pointer; font-size: 0.85rem; padding: 1px 3px;
+      line-height: 1; border-radius: 3px; margin-left: 2px;
+    }
+    .tab-close:hover { background: #30363d; color: #f85149; }
+
+    #tab-add-btn {
+      height: 34px; padding: 0 14px;
+      display: flex; align-items: center;
+      cursor: pointer; font-size: 1.2rem; font-weight: 400;
+      color: #388bfd; background: none; border: none;
+      border-left: 1px solid #21262d;
+      margin-left: auto; flex-shrink: 0;
+    }
+    #tab-add-btn:hover { background: #161b22; }
+
+    /* ── Add-instrument row ──────────────────────────────────────────────── */
+    #add-row {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      flex-shrink: 0;
+    }
+    #add-row.visible { display: flex; }
+    #add-row input {
+      background: #21262d; border: 1px solid #30363d;
+      color: #c9d1d9; border-radius: 5px;
+      padding: 5px 8px; font-size: 0.79rem;
+    }
+    #add-row input:focus { outline: none; border-color: #388bfd; }
+    #inst-ip-input   { width: 160px; }
+    #inst-port-input { width: 72px; }
+    #inst-error { font-size: 0.73rem; color: #f85149; }
+
+    /* ── Content area ────────────────────────────────────────────────────── */
+    #content-area { display: flex; flex: 1; overflow: hidden; }
+
+    .tab-content { display: none; flex: 1; overflow: hidden; }
+    .tab-content.active { display: flex; }
+
+    /* ── Shared panel + form styles ──────────────────────────────────────── */
+    .sec-title {
+      font-size: 0.62rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 1.2px; color: #8b949e;
+      padding-bottom: 4px; border-bottom: 1px solid #21262d; margin-bottom: 6px;
+    }
+    label { font-size: 0.77rem; color: #8b949e; display: block; margin-bottom: 2px; }
+
+    select, input[type="number"] {
+      width: 100%; padding: 5px 7px;
+      background: #21262d; border: 1px solid #30363d;
+      color: #c9d1d9; border-radius: 5px; font-size: 0.79rem;
+    }
+    select:focus, input[type="number"]:focus { outline: none; border-color: #388bfd; }
+
+    .panel-input {
+      width: 100%; padding: 5px 7px;
+      background: #21262d; border: 1px solid #30363d;
+      color: #c9d1d9; border-radius: 5px; font-size: 0.79rem;
+    }
+    .panel-input:focus { outline: none; border-color: #388bfd; }
+
+    .btn {
+      width: 100%; padding: 6px 0;
+      border: 1px solid #30363d; border-radius: 5px;
+      background: #21262d; color: #c9d1d9; font-size: 0.79rem;
+      cursor: pointer; margin-top: 5px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover       { background: #30363d; border-color: #8b949e; }
+    .btn-apply       { background: #0d2a1c; color: #3fb950; border-color: #238636; }
+    .btn-apply:hover { background: #12381f; }
+    .btn-stop        { background: #2d1115; color: #f85149; border-color: #6e2828; }
+    .btn-stop:hover  { background: #3d1a1a; }
+
+    /* ── Toggle switch ───────────────────────────────────────────────────── */
+    .toggle-row {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-top: 7px;
+    }
+    .toggle-lbl { font-size: 0.77rem; color: #8b949e; }
+    .t-switch { position: relative; display: inline-block; width: 32px; height: 17px; flex-shrink: 0; }
+    .t-switch input { display: none; }
+    .t-slider {
+      position: absolute; inset: 0;
+      background: #21262d; border: 1px solid #30363d;
+      border-radius: 17px; cursor: pointer; transition: 0.2s;
+    }
+    .t-slider::before {
+      content: ''; position: absolute;
+      width: 11px; height: 11px; left: 2px; top: 2px;
+      background: #8b949e; border-radius: 50%; transition: 0.2s;
+    }
+    .t-switch input:checked + .t-slider             { background: #0d2a1c; border-color: #238636; }
+    .t-switch input:checked + .t-slider::before     { transform: translateX(15px); background: #3fb950; }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 6px #3fb950; opacity: 1;   }
+      50%       { box-shadow: 0 0 2px #3fb950; opacity: 0.4; }
+    }
+
+    /* ── DAQ tab layout ──────────────────────────────────────────────────── */
+    .daq-view { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+
+    .daq-top-bar {
+      display: flex; align-items: center; gap: 10px;
+      background: #161b22; border-bottom: 1px solid #30363d;
+      padding: 5px 12px; flex-shrink: 0;
+    }
+    .inst-idn {
+      font-size: 0.67rem; color: #8b949e; flex: 1;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    .daq-region {
+      display: flex; flex: 1; min-height: 0; overflow: hidden;
+      border-bottom: 1px solid #30363d;
+    }
+    .daq-region:last-child { border-bottom: none; }
+
+    .daq-region-panel {
+      width: 205px; min-width: 205px; flex-shrink: 0;
+      background: #161b22; border-right: 1px solid #30363d;
+      overflow-y: auto; padding: 9px 9px;
+      display: flex; flex-direction: column; gap: 9px;
+    }
+    .daq-region-readings {
+      flex: 1; background: #0d1117;
+      overflow-y: auto; padding: 10px 14px;
+    }
+    .daq-status-bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 12px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      margin-bottom: 14px;
+    }
+    .daq-sdot {
+      width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+      background: #484800;
+    }
+    .daq-sdot.green    { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+    .daq-sdot.red      { background: #f85149; box-shadow: 0 0 4px #f85149; }
+    .daq-sdot.scanning { background: #3fb950; animation: pulse 1s ease-in-out infinite; }
+    .daq-status-text { font-size: 0.76rem; color: #c9d1d9; }
+    .daq-scan-info   { font-size: 0.70rem; color: #8b949e; font-family: monospace; margin-left: auto; }
+
+    /* Reading cards */
+    .daq-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 8px;
+    }
+    .daq-card {
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      padding: 11px 14px; transition: border-color 0.2s;
+    }
+    .daq-card:hover { border-color: #484f58; }
+    .daq-card-ch {
+      font-size: 0.66rem; color: #8b949e; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 7px;
+    }
+    .daq-card-val {
+      font-size: 1.25rem; font-family: monospace;
+      color: #3fb950; font-weight: 600; line-height: 1;
+    }
+    .daq-card-val.ovr { color: #f85149; }
+    .daq-card-unit { font-size: 0.70rem; color: #8b949e; margin-top: 6px; }
+    .daq-empty {
+      color: #484f58; font-size: 0.82rem; text-align: center;
+      padding: 50px 20px; grid-column: 1 / -1;
+    }
+
+    /* ── Relay / matrix grid ─────────────────────────────────────────────── */
+    .relay-wrap {
+      flex: 1; position: relative;
+      display: flex; align-items: center; justify-content: center;
+      background: #0d1117; overflow: auto;
+    }
+    .relay-matrix {
+      display: inline-grid;
+      position: relative; z-index: 2;
+    }
+    .relay-matrix.m4x8 {
+      grid-template-columns: 42px repeat(8, 64px);
+      grid-template-rows: 34px repeat(4, 64px);
+    }
+    .relay-matrix.m4x4 {
+      grid-template-columns: 42px repeat(4, 72px);
+      grid-template-rows: 34px repeat(4, 72px);
+    }
+    .relay-corner { }
+    .relay-col, .relay-row {
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.72rem; font-weight: 700; color: #79c0ff;
+      user-select: none; cursor: pointer;
+    }
+    .relay-col:hover, .relay-row:hover { color: #a5d6ff; }
+    .relay-label-input {
+      width: 100%; text-align: center; background: #161b22; color: #79c0ff;
+      border: 1px solid #1a4a8a; border-radius: 3px; font-size: 0.72rem;
+      font-weight: 700; padding: 1px 2px; outline: none;
+    }
+    .relay-node {
+      display: flex; align-items: center; justify-content: center;
+      border: 1px solid #21262d;
+      cursor: pointer;
+      transition: background 0.15s;
+      position: relative;
+    }
+    .relay-node:hover { background: #161b22; }
+    .relay-dot {
+      width: 20px; height: 20px; border-radius: 50%;
+      border: 2px solid #30363d;
+      background: #21262d;
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+    .relay-node.on .relay-dot {
+      box-shadow: 0 0 10px var(--wire-color);
+    }
+    .relay-node.blocked {
+      opacity: 0.2;
+      cursor: not-allowed;
+    }
+    .relay-node.blocked:hover { background: transparent; }
+    .relay-svg {
+      position: absolute; inset: 0;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* ── Spec badge ──────────────────────────────────────────────────────── */
+    .spec-row {
+      display: flex; align-items: center; gap: 4px;
+      flex-wrap: wrap;
+    }
+    .spec-badge {
+      font-size: 0.56rem; font-weight: 600;
+      padding: 1px 5px; border-radius: 3px;
+      background: #21262d; color: #8b949e; border: 1px solid #30363d;
+      white-space: nowrap;
+    }
+    .spec-badge.volt { background: #1a1a0d; color: #d29922; border-color: #6a4a00; }
+    .spec-badge.amp  { background: #0d1b3c; color: #79c0ff; border-color: #1a4a8a; }
+    .spec-badge.watt { background: #2d1115; color: #f85149; border-color: #6e2828; }
+    .spec-badge.fet  { background: #0d2a1c; color: #3fb950; border-color: #238636; }
+
+    /* ── Empty state ─────────────────────────────────────────────────────── */
+    .empty-state {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 12px; color: #484f58;
+    }
+    .empty-state .icon { font-size: 3rem; opacity: 0.4; }
+    .empty-state .msg  { font-size: 0.88rem; }
+    .empty-state .hint { font-size: 0.74rem; color: #30363d; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header>
+    <h1>&#9654; DAQ970A Monitor</h1>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div id="status-badge">Connecting...</div>
+    </div>
+  </header>
+
+  <!-- ── Tab bar ─────────────────────────────────────────────────────────── -->
+  <div id="tab-bar">
+    <button id="tab-add-btn" onclick="toggleAddRow()" title="Add instrument">+</button>
+  </div>
+
+  <!-- ── Add-instrument inline bar ───────────────────────────────────────── -->
+  <div id="add-row">
+    <input type="text"   id="inst-ip-input"   placeholder="IP address"
+           onkeydown="if(event.key==='Enter')connectInstrument()">
+    <input type="number" id="inst-port-input" value="5025" min="1" max="65535"
+           onkeydown="if(event.key==='Enter')connectInstrument()">
+    <button class="btn btn-apply" style="width:auto;padding:5px 14px;margin:0;"
+            onclick="connectInstrument()">Connect</button>
+    <span id="inst-error" style="display:none;font-size:0.73rem;color:#f85149;"></span>
+  </div>
+
+  <!-- ── Content area ────────────────────────────────────────────────────── -->
+  <div id="content-area">
+    <div class="empty-state" id="empty-state">
+      <div class="icon">&#9881;</div>
+      <div class="msg">Connecting to 10.0.3.83...</div>
+      <div class="hint">Auto-connecting on startup</div>
+    </div>
+  </div>
+
+  <script>
+  const API_BASE = {{ api_base | tojson }};
+
+  // ── Helper: compute DAQM904A matrix channel from slot, row, col ───────────
+  // Row 1-based (1..4), Col 1-based (1..8)
+  // ch = slotBase + row*10 + col   where slotBase = (slot-1)*100 + 100
+  function matrixCh(slot, row1, col1) {
+    return (slot - 1) * 100 + 100 + row1 * 10 + col1;
+  }
+
+  // ── Debounce guard: recently-toggled channels skip poll sync ──────────────
+  // Maps channel number -> timestamp. syncRelayStates ignores channels
+  // that were user-toggled within the last DEBOUNCE_MS.
+  const recentToggles = {};
+  const DEBOUNCE_MS   = 3000;
+
+  function markToggled(channel) {
+    recentToggles[channel] = Date.now();
+  }
+  function isRecentlyToggled(channel) {
+    const t = recentToggles[channel];
+    if (!t) return false;
+    if (Date.now() - t < DEBOUNCE_MS) return true;
+    delete recentToggles[channel];
+    return false;
+  }
+
+  // ── Tab management ────────────────────────────────────────────────────────
+  let activeTab = null;
+
+  function switchTab(id) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.getElementById(`tab-${id}`)?.classList.add('active');
+    document.getElementById(`content-${id}`)?.classList.add('active');
+    activeTab = id;
+    const empty = document.getElementById('empty-state');
+    if (empty) empty.style.display = 'none';
+  }
+
+  function toggleAddRow() {
+    const row = document.getElementById('add-row');
+    row.classList.toggle('visible');
+    if (row.classList.contains('visible'))
+      document.getElementById('inst-ip-input').focus();
+  }
+
+  // ── API helpers ───────────────────────────────────────────────────────────
+  function api(path) { return API_BASE + path; }
+
+  async function post(path, body) {
+    return fetch(api(path), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  // ── Instrument manager ────────────────────────────────────────────────────
+  const instSSE     = {};
+  const instModules = {};
+
+  const DAQ_MEAS_TYPES = [
+    ['VOLT:DC','DC Voltage'],    ['VOLT:AC','AC Voltage'],
+    ['RES',    'Resistance (2W)'],['FRES',  'Resistance (4W)'],
+    ['TEMP:TC','Temperature (TC)'],['TEMP:RTD','Temperature (RTD)'],
+    ['FREQ',   'Frequency'],     ['DIOD',  'Diode'],
+    ['CURR:DC','DC Current'],    ['CURR:AC','AC Current'],
+  ];
+
+  function fmtDAQVal(value) {
+    if (value === null || value === undefined) return '---';
+    const v = parseFloat(value);
+    if (Math.abs(v) >= 9e36) return 'OvR';
+    if (Math.abs(v) >= 1e6)  return (v / 1e6).toFixed(4) + ' M';
+    if (Math.abs(v) >= 1e3)  return (v / 1e3).toFixed(4) + ' k';
+    if (Math.abs(v) >= 1)    return v.toFixed(5);
+    if (Math.abs(v) >= 1e-3) return (v * 1e3).toFixed(4) + ' m';
+    if (Math.abs(v) >= 1e-6) return (v * 1e6).toFixed(4) + ' \u00b5';
+    return v.toExponential(4);
+  }
+
+  async function configureDAQCard(ip, slot) {
+    const s        = ip.replace(/\./g, '_');
+    const channels = document.getElementById(`daq-ch-${s}-${slot}`).value;
+    const mtype    = document.getElementById(`daq-type-${s}-${slot}`).value;
+    const interval = parseFloat(document.getElementById(`daq-intv-${s}-${slot}`).value);
+    const nplc     = parseFloat(document.getElementById(`daq-nplc-${s}-${slot}`).value);
+    await post(`/instruments/${encodeURIComponent(ip)}/scan/configure`,
+               { channels, mtype, interval, nplc });
+  }
+
+  function addInstrumentTab(info) {
+    const ip     = info.ip;
+    const safeId = ip.replace(/\./g, '_');
+    const tabId  = `inst_${safeId}`;
+
+    const empty = document.getElementById('empty-state');
+    if (empty) empty.style.display = 'none';
+
+    const tabBar  = document.getElementById('tab-bar');
+    const addBtn  = document.getElementById('tab-add-btn');
+    const tabEl   = document.createElement('div');
+    tabEl.className = 'tab';
+    tabEl.id        = `tab-${tabId}`;
+    tabEl.onclick   = () => switchTab(tabId);
+    tabEl.innerHTML =
+      `<div class="tab-dot" id="tab-dot-${safeId}"></div>` +
+      `<span>${ip}</span>` +
+      `<button class="tab-close" title="Disconnect"` +
+      ` onclick="event.stopPropagation();disconnectInstrument('${ip}')">&#215;</button>`;
+    tabBar.insertBefore(tabEl, addBtn);
+
+    const pane  = document.createElement('div');
+    pane.className = 'tab-content';
+    pane.id        = `content-${tabId}`;
+    pane.innerHTML = buildDAQPane(info);
+    document.getElementById('content-area').appendChild(pane);
+
+    switchTab(tabId);
+
+    document.getElementById('status-badge').textContent = 'Connected';
+    document.getElementById('status-badge').className = 'live';
+  }
+
+  // ── Wire colors (32 for full 4x8 matrix) ─────────────────────────────────
+  const WIRE_COLORS = [
+    '#ff6b6b','#ffd93d','#6bcb77','#4d96ff',
+    '#ff922b','#cc5de8','#20c997','#74c0fc',
+    '#f06595','#fcc419','#51cf66','#339af0',
+    '#e8590c','#be4bdb','#099268','#5c7cfa',
+    '#ff8787','#ffe066','#8ce99a','#74c0fc',
+    '#ffa94d','#da77f2','#63e6be','#a5d8ff',
+    '#f783ac','#ffe066','#69db7c','#4dabf7',
+    '#fd7e14','#c084fc','#38d9a9','#748ffc',
+  ];
+
+  // ── Relay matrix builder ──────────────────────────────────────────────────
+  // DAQM904A: 4 rows x 8 cols, row/col channel addressing
+  //   ch = slotBase + row*10 + col   (row 1-4, col 1-8)
+  //   For slot 1: 111-118, 121-128, 131-138, 141-148
+
+  function buildRelayMatrix(ip, s, slot, base, nRows, nCols) {
+    const key = `${ip}-${slot}`;
+    matrixDims[key] = { rows: nRows, cols: nCols };
+
+    if (!relayLabels[key]) {
+      const cols = []; for (let c = 1; c <= nCols; c++) cols.push(`C${c}`);
+      const rows = []; for (let r = 1; r <= nRows; r++) rows.push(`R${r}`);
+      relayLabels[key] = { cols, rows };
+    }
+    relayIsolated[key] = true;
+    const lbl = relayLabels[key];
+
+    const cssClass = (nCols === 8) ? 'm4x8' : 'm4x4';
+
+    let cells = `<div class="relay-corner"></div>`;
+    for (let c = 0; c < nCols; c++)
+      cells += `<div class="relay-col" id="rcol-${s}-${slot}-${c}"
+                     onclick="editRelayLabel('${ip}',${slot},'col',${c})">${lbl.cols[c]}</div>`;
+    for (let r = 0; r < nRows; r++) {
+      cells += `<div class="relay-row" id="rrow-${s}-${slot}-${r}"
+                     onclick="editRelayLabel('${ip}',${slot},'row',${r})">${lbl.rows[r]}</div>`;
+      for (let c = 0; c < nCols; c++) {
+        const ch = matrixCh(slot, r + 1, c + 1);
+        const ci = r * nCols + c;
+        const color = WIRE_COLORS[ci % WIRE_COLORS.length];
+        cells += `<div class="relay-node" id="rnode-${s}-${ch}"
+                       data-color="${color}" data-col="${c}" data-row="${r}"
+                       onclick="toggleRelay('${ip}',${slot},${ch})">
+                    <div class="relay-dot"></div>
+                  </div>`;
+      }
+    }
+    return `
+      <div class="relay-wrap" id="relay-wrap-${s}-${slot}">
+        <div class="relay-matrix ${cssClass}" id="relay-matrix-${s}-${slot}">${cells}</div>
+        <svg class="relay-svg" id="relay-svg-${s}-${slot}"></svg>
+      </div>`;
+  }
+
+  function buildDAQPane(info) {
+    const ip      = info.ip;
+    const s       = ip.replace(/\./g, '_');
+    const idn     = info.idn || '';
+    const isDAQ   = info.instrument_type === 'daq';
+    const modules = (info.modules || []).filter(m =>
+      m.n_channels > 0 || m.card_type === 'actuator' || m.card_type === 'matrix');
+
+    instModules[ip] = modules;
+
+    const typeOpts = DAQ_MEAS_TYPES.map(([v, l]) =>
+      `<option value="${v}">${l}</option>`).join('');
+
+    const nplcOpts = `
+      <option value="0.02">0.02 &mdash; Fast</option>
+      <option value="0.2">0.2</option>
+      <option value="1" selected>1 &mdash; Normal</option>
+      <option value="10">10</option>
+      <option value="100">100 &mdash; Accurate</option>`;
+
+    const topBar = `
+      <div class="daq-top-bar">
+        <div class="inst-idn">${idn}</div>
+        <div style="font-size:0.67rem;color:#6a737d;white-space:nowrap;">${ip}:${info.port}</div>
+        <button class="btn btn-stop" style="width:auto;margin:0;padding:2px 10px;font-size:0.68rem;"
+                onclick="stopDAQAll('${ip}')">&#9646; Stop All</button>
+      </div>`;
+
+    let regions = '';
+
+    if (isDAQ && modules.length > 0) {
+      regions = modules.map(m => {
+        const isRelay = m.card_type === 'actuator' || m.card_type === 'matrix';
+
+        const nRows = m.rows || 4;
+        const nCols = m.cols || (m.card_type === 'matrix' ? 8 : 4);
+        const nCross = nRows * nCols;
+
+        const specBadges = [];
+        if (m.max_v)      specBadges.push(`<span class="spec-badge volt">${m.max_v} V</span>`);
+        if (m.max_i)      specBadges.push(`<span class="spec-badge amp">${m.max_i} A</span>`);
+        if (m.max_w)      specBadges.push(`<span class="spec-badge watt">${m.max_w} W</span>`);
+        if (m.switch_tech) specBadges.push(`<span class="spec-badge fet">${m.switch_tech.toUpperCase()}</span>`);
+        if (m.scan_rate)  specBadges.push(`<span class="spec-badge">${m.scan_rate} ch/s</span>`);
+
+        const headerHtml = `
+          <div>
+            <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+              <span style="background:#0d1b3c;color:#79c0ff;border:1px solid #1a4a8a;
+                           border-radius:3px;padding:0 5px;font-size:0.60rem;font-weight:700;
+                           letter-spacing:0.5px;flex-shrink:0;">SLT ${m.slot}</span>
+              <span class="sec-title" style="margin:0;flex:1;overflow:hidden;
+                           text-overflow:ellipsis;white-space:nowrap;">${m.name}</span>
+            </div>
+            <div style="font-size:0.60rem;color:#6a737d;margin-top:2px;">
+              ${m.model} &middot; ${m.n_channels}&thinsp;ch
+            </div>
+            ${specBadges.length ? `<div class="spec-row" style="margin-top:4px;">${specBadges.join('')}</div>` : ''}
+          </div>`;
+
+        if (isRelay) {
+          const matrixLabel = m.card_type === 'matrix'
+            ? `${nRows} &times; ${nCols} Matrix (${nCross} crosspoints)`
+            : `${m.n_channels}-ch Relay`;
+
+          const sidebar = `
+            <div class="daq-region-panel">
+              ${headerHtml}
+              <div class="sec-title" style="margin-top:4px;">${matrixLabel}</div>
+              <div style="font-size:0.60rem;color:#6a737d;line-height:1.4;">
+                ${m.card_type === 'matrix'
+                  ? `C1\u2013C${nCols} columns, R1\u2013R${nRows} rows.<br>
+                     Row/col addressing: ch = base + row\u00d710 + col.<br>
+                     Click a crosspoint to toggle.<br>
+                     ${m.switch_tech === 'relay' ? 'Armature relay \u2014 mechanical switches.' : m.switch_tech === 'FET' ? 'FET-based \u2014 unlimited switch life.' : ''}`
+                  : `Click a channel to toggle.`}
+              </div>
+              ${m.closed_r != null ? `<div style="font-size:0.56rem;color:#6a737d;margin-top:2px;">
+                R<sub>on</sub> &lt; ${m.closed_r} &Omega;</div>` : ''}
+              <div class="toggle-row" style="margin-top:4px;">
+                <span class="toggle-lbl">Isolated</span>
+                <label class="t-switch">
+                  <input type="checkbox" id="relay-iso-${s}-${m.slot}" checked
+                         onchange="setRelayIsolated('${ip}',${m.slot},this.checked)">
+                  <span class="t-slider"></span>
+                </label>
+              </div>
+              <button class="btn btn-stop" style="margin-top:auto;"
+                      onclick="openAllRelays('${ip}', ${m.slot})">
+                &#9646; Open All
+              </button>
+            </div>`;
+          return `<div class="daq-region">${sidebar}${buildRelayMatrix(ip, s, m.slot, m.ch_first, nRows, nCols)}</div>`;
+        }
+
+        // Mux / measurement card
+        const sidebar = `
+          <div class="daq-region-panel">
+            ${headerHtml}
+            <div>
+              <label>Channels</label>
+              <input type="text" class="panel-input" id="daq-ch-${s}-${m.slot}"
+                     value="${m.ch_str}" placeholder="${m.ch_str}">
+            </div>
+            <div>
+              <label>Measurement</label>
+              <select id="daq-type-${s}-${m.slot}">${typeOpts}</select>
+            </div>
+            <div>
+              <label>Interval (s)</label>
+              <input type="number" id="daq-intv-${s}-${m.slot}" value="1" min="0.1" step="0.1">
+            </div>
+            <div>
+              <label>NPLC</label>
+              <select id="daq-nplc-${s}-${m.slot}">${nplcOpts}</select>
+            </div>
+            <button class="btn btn-apply" style="margin-top:2px;"
+                    onclick="configureDAQCard('${ip}', ${m.slot})">
+              &#9654; Start Slot ${m.slot}
+            </button>
+            <button class="btn btn-stop" style="margin-top:2px;"
+                    onclick="stopDAQ('${ip}')">
+              &#9646; Stop Slot ${m.slot}
+            </button>
+          </div>`;
+
+        const readings = `
+          <div class="daq-region-readings">
+            <div class="daq-status-bar">
+              <div class="daq-sdot" id="daq-sdot-${s}-${m.slot}"></div>
+              <span class="daq-status-text" id="daq-status-${s}-${m.slot}">Ready</span>
+              <span class="daq-scan-info"   id="daq-info-${s}-${m.slot}"></span>
+            </div>
+            <div class="daq-grid" id="daq-grid-${s}-${m.slot}">
+              <div class="daq-empty">Press Start Slot ${m.slot} to begin scanning.</div>
+            </div>
+          </div>`;
+
+        return `<div class="daq-region">${sidebar}${readings}</div>`;
+      }).join('');
+
+    } else if (isDAQ) {
+      regions = `
+        <div class="daq-region">
+          <div class="daq-region-panel">
+            <div class="sec-title">Scan Config</div>
+            <div>
+              <label>Channels</label>
+              <input type="text" class="panel-input" id="daq-ch-${s}-0"
+                     value="101-120" placeholder="101-120 or 101,102">
+            </div>
+            <div>
+              <label>Measurement</label>
+              <select id="daq-type-${s}-0">${typeOpts}</select>
+            </div>
+            <div>
+              <label>Interval (s)</label>
+              <input type="number" id="daq-intv-${s}-0" value="1" min="0.1" step="0.1">
+            </div>
+            <div>
+              <label>NPLC</label>
+              <select id="daq-nplc-${s}-0">${nplcOpts}</select>
+            </div>
+            <button class="btn btn-apply" style="margin-top:2px;"
+                    onclick="configureDAQCard('${ip}', 0)">&#9654; Start</button>
+            <button class="btn btn-stop" style="margin-top:2px;"
+                    onclick="stopDAQ('${ip}')">&#9646; Stop</button>
+          </div>
+          <div class="daq-region-readings">
+            <div class="daq-status-bar">
+              <div class="daq-sdot" id="daq-sdot-${s}-0"></div>
+              <span class="daq-status-text" id="daq-status-${s}-0">Ready</span>
+              <span class="daq-scan-info"   id="daq-info-${s}-0"></span>
+            </div>
+            <div class="daq-grid" id="daq-grid-${s}-0">
+              <div class="daq-empty">Select channels and press Start to begin scanning.</div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    return `<div class="daq-view">${topBar}${regions}</div>`;
+  }
+
+  function updateInstrumentState(ip, state) {
+    const s      = ip.replace(/\./g, '_');
+    const st     = state.status || 'Unknown';
+    const isErr  = st.startsWith('Error');
+    const isScan = st === 'Scanning';
+
+    if (state.closed_relays) syncRelayStates(ip, state.closed_relays);
+
+    const tabDot = document.getElementById(`tab-dot-${s}`);
+    if (tabDot) tabDot.className = 'tab-dot' + (isErr ? ' err' : '');
+
+    const badge = document.getElementById('status-badge');
+    if (activeTab === `inst_${s}`) {
+      badge.textContent = st;
+      badge.className   = isScan ? 'live' : isErr ? 'error' : 'stopped';
+    }
+
+    const slotReadings = {};
+    for (const r of (state.readings || [])) {
+      const slot = Math.floor(r.channel / 100);
+      (slotReadings[slot] = slotReadings[slot] || []).push(r);
+    }
+
+    const modules = instModules[ip] || [];
+    const slots   = modules.length > 0 ? modules.map(m => m.slot) : [0];
+
+    for (const slot of slots) {
+      const sdotEl   = document.getElementById(`daq-sdot-${s}-${slot}`);
+      const statusEl = document.getElementById(`daq-status-${s}-${slot}`);
+      const infoEl   = document.getElementById(`daq-info-${s}-${slot}`);
+      const gridEl   = document.getElementById(`daq-grid-${s}-${slot}`);
+
+      if (statusEl) statusEl.textContent = st;
+      if (infoEl)   infoEl.textContent = state.scan_count > 0 ? `Scan #${state.scan_count}` : '';
+      if (sdotEl)   sdotEl.className = 'daq-sdot ' + (isErr ? 'red' : isScan ? 'scanning' : 'green');
+
+      const readings = slotReadings[slot] || [];
+      if (gridEl && readings.length > 0) {
+        gridEl.innerHTML = readings.map(r => {
+          const ovr = Math.abs(parseFloat(r.value)) >= 9e36;
+          return `<div class="daq-card">
+            <div class="daq-card-ch">CH ${r.channel}</div>
+            <div class="daq-card-val${ovr ? ' ovr' : ''}">${fmtDAQVal(r.value)}</div>
+            <div class="daq-card-unit">${r.unit}</div>
+          </div>`;
+        }).join('');
+      }
+    }
+  }
+
+  function subscribeInstrument(ip) {
+    if (instSSE[ip]) { instSSE[ip].close?.(); clearInterval(instSSE[ip]._poll); }
+    if (API_BASE) {
+      const timer = setInterval(async () => {
+        try {
+          const r = await fetch(api(`/instruments/${encodeURIComponent(ip)}/data`));
+          if (r.ok) updateInstrumentState(ip, await r.json());
+        } catch {}
+      }, 1000);
+      instSSE[ip] = { close() { clearInterval(timer); }, _poll: timer };
+    } else {
+      const es = new EventSource(`/instruments/${encodeURIComponent(ip)}/stream`);
+      es.onmessage = (e) => {
+        try { updateInstrumentState(ip, JSON.parse(e.data)); } catch {}
+      };
+      instSSE[ip] = es;
+    }
+  }
+
+  async function connectInstrument() {
+    const ip    = document.getElementById('inst-ip-input').value.trim();
+    const port  = parseInt(document.getElementById('inst-port-input').value) || 5025;
+    const errEl = document.getElementById('inst-error');
+    errEl.style.display = 'none';
+    if (!ip) return;
+
+    const r = await post('/instruments', { ip, port });
+    const d = await r.json();
+    if (!d.ok) {
+      errEl.textContent   = d.error || 'Connection failed';
+      errEl.style.display = 'inline';
+      return;
+    }
+    document.getElementById('inst-ip-input').value = '';
+    document.getElementById('add-row').classList.remove('visible');
+    addInstrumentTab(d.info);
+    subscribeInstrument(ip);
+  }
+
+  async function disconnectInstrument(ip) {
+    await fetch(api(`/instruments/${encodeURIComponent(ip)}`), { method: 'DELETE' });
+    if (instSSE[ip]) { instSSE[ip].close(); delete instSSE[ip]; }
+    const s     = ip.replace(/\./g, '_');
+    const tabId = `inst_${s}`;
+    document.getElementById(`tab-${tabId}`)?.remove();
+    document.getElementById(`content-${tabId}`)?.remove();
+    const tabs = document.querySelectorAll('.tab');
+    if (tabs.length === 0) {
+      document.getElementById('empty-state').style.display = '';
+      document.getElementById('status-badge').textContent = 'Ready';
+      document.getElementById('status-badge').className = '';
+      activeTab = null;
+    } else {
+      switchTab(tabs[0].id.replace('tab-', ''));
+    }
+  }
+
+  async function stopDAQ(ip) {
+    await post(`/instruments/${encodeURIComponent(ip)}/scan/stop`, {});
+  }
+
+  async function stopDAQAll(ip) {
+    await post(`/instruments/${encodeURIComponent(ip)}/scan/stop`, {});
+    const modules = instModules[ip] || [];
+    for (const m of modules) {
+      if (m.card_type === 'actuator' || m.card_type === 'matrix')
+        await openAllRelays(ip, m.slot);
+    }
+  }
+
+  // ── Relay / matrix helpers ────────────────────────────────────────────────
+  const relayIsolated = {};
+  const relayLabels   = {};
+  const matrixDims    = {};   // key -> { rows, cols }
+
+  function getDims(ip, slot) {
+    return matrixDims[`${ip}-${slot}`] || { rows: 4, cols: 8 };
+  }
+
+  function setRelayIsolated(ip, slot, on) {
+    relayIsolated[`${ip}-${slot}`] = on;
+    updateRelayBlocked(ip, slot);
+  }
+
+  function editRelayLabel(ip, slot, axis, idx) {
+    const s   = ip.replace(/\./g, '_');
+    const key = `${ip}-${slot}`;
+    const lbl = relayLabels[key];
+    const elId = axis === 'col' ? `rcol-${s}-${slot}-${idx}` : `rrow-${s}-${slot}-${idx}`;
+    const el   = document.getElementById(elId);
+    if (!el || el.querySelector('input')) return;
+
+    const cur = axis === 'col' ? lbl.cols[idx] : lbl.rows[idx];
+    const inp = document.createElement('input');
+    inp.className = 'relay-label-input';
+    inp.value     = cur;
+    inp.maxLength = 6;
+
+    function commit() {
+      const val = inp.value.trim() || cur;
+      if (axis === 'col') lbl.cols[idx] = val; else lbl.rows[idx] = val;
+      el.textContent = val;
+    }
+    inp.addEventListener('blur', commit);
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') inp.blur();
+      if (e.key === 'Escape') { inp.value = cur; inp.blur(); }
+    });
+
+    el.textContent = '';
+    el.appendChild(inp);
+    inp.focus();
+    inp.select();
+  }
+
+  function syncRelayStates(ip, closedRelays) {
+    const s = ip.replace(/\./g, '_');
+    for (const [slotStr, closedList] of Object.entries(closedRelays)) {
+      const slot      = parseInt(slotStr);
+      const dims      = getDims(ip, slot);
+      const closedSet = new Set(closedList);
+
+      for (let r = 0; r < dims.rows; r++) {
+        for (let c = 0; c < dims.cols; c++) {
+          const ch   = matrixCh(slot, r + 1, c + 1);
+
+          // Skip channels the user just toggled — avoid stale-poll flicker
+          if (isRecentlyToggled(ch)) continue;
+
+          const node = document.getElementById(`rnode-${s}-${ch}`);
+          if (!node) continue;
+
+          const shouldBeOn = closedSet.has(ch);
+          const isOn       = node.classList.contains('on');
+          if (shouldBeOn === isOn) continue;
+
+          const dot   = node.querySelector('.relay-dot');
+          const color = node.dataset.color;
+          if (shouldBeOn) {
+            node.classList.add('on');
+            node.style.setProperty('--wire-color', color);
+            dot.style.background  = color;
+            dot.style.borderColor = color;
+          } else {
+            node.classList.remove('on');
+            dot.style.background  = '#21262d';
+            dot.style.borderColor = '#30363d';
+          }
+        }
+      }
+      updateRelayBlocked(ip, slot);
+      drawRelayWires(ip, slot);
+    }
+  }
+
+  function updateRelayBlocked(ip, slot) {
+    const s        = ip.replace(/\./g, '_');
+    const dims     = getDims(ip, slot);
+    const isolated = relayIsolated[`${ip}-${slot}`] || false;
+
+    const busyCol = new Set();
+    const busyRow = new Set();
+    if (isolated) {
+      for (let r = 0; r < dims.rows; r++) {
+        for (let c = 0; c < dims.cols; c++) {
+          const node = document.getElementById(`rnode-${s}-${matrixCh(slot, r + 1, c + 1)}`);
+          if (node && node.classList.contains('on')) { busyCol.add(c); busyRow.add(r); }
+        }
+      }
+    }
+
+    for (let r = 0; r < dims.rows; r++) {
+      for (let c = 0; c < dims.cols; c++) {
+        const ch   = matrixCh(slot, r + 1, c + 1);
+        const node = document.getElementById(`rnode-${s}-${ch}`);
+        if (!node) continue;
+        const isOn    = node.classList.contains('on');
+        const blocked = isolated && !isOn && (busyCol.has(c) || busyRow.has(r));
+        node.classList.toggle('blocked', blocked);
+      }
+    }
+  }
+
+  async function toggleRelay(ip, slot, channel) {
+    const s    = ip.replace(/\./g, '_');
+    const node = document.getElementById(`rnode-${s}-${channel}`);
+    if (!node) return;
+    if (node.classList.contains('blocked')) return;
+
+    // Prevent double-clicks while awaiting the SCPI response
+    if (node.dataset.pending) return;
+    node.dataset.pending = '1';
+
+    const isOn     = node.classList.contains('on');
+    const newState = !isOn;
+
+    // Mark this channel so polling won't revert it
+    markToggled(channel);
+
+    // Optimistically update UI immediately
+    const dot   = node.querySelector('.relay-dot');
+    const color = node.dataset.color;
+    if (newState) {
+      node.classList.add('on');
+      node.style.setProperty('--wire-color', color);
+      dot.style.background   = color;
+      dot.style.borderColor  = color;
+    } else {
+      node.classList.remove('on');
+      dot.style.background   = '#21262d';
+      dot.style.borderColor  = '#30363d';
+    }
+    updateRelayBlocked(ip, slot);
+    drawRelayWires(ip, slot);
+
+    try {
+      const r = await post(`/instruments/${encodeURIComponent(ip)}/relay/toggle`, {
+        channel, close: newState
+      });
+      const d = await r.json();
+      if (!d.ok) {
+        // Revert on failure
+        if (newState) {
+          node.classList.remove('on');
+          dot.style.background   = '#21262d';
+          dot.style.borderColor  = '#30363d';
+        } else {
+          node.classList.add('on');
+          node.style.setProperty('--wire-color', color);
+          dot.style.background   = color;
+          dot.style.borderColor  = color;
+        }
+        updateRelayBlocked(ip, slot);
+        drawRelayWires(ip, slot);
+      }
+    } catch {
+      // Revert on network error
+      if (newState) {
+        node.classList.remove('on');
+        dot.style.background   = '#21262d';
+        dot.style.borderColor  = '#30363d';
+      } else {
+        node.classList.add('on');
+        node.style.setProperty('--wire-color', color);
+        dot.style.background   = color;
+        dot.style.borderColor  = color;
+      }
+      updateRelayBlocked(ip, slot);
+      drawRelayWires(ip, slot);
+    } finally {
+      delete node.dataset.pending;
+    }
+  }
+
+  async function openAllRelays(ip, slot) {
+    // Mark all channels so polling won't fight us
+    const dims = getDims(ip, slot);
+    for (let row = 0; row < dims.rows; row++)
+      for (let col = 0; col < dims.cols; col++)
+        markToggled(matrixCh(slot, row + 1, col + 1));
+
+    const r = await post(`/instruments/${encodeURIComponent(ip)}/relay/open_all`, { slot });
+    const d = await r.json();
+    if (!d.ok) return;
+
+    const s = ip.replace(/\./g, '_');
+    for (let row = 0; row < dims.rows; row++) {
+      for (let col = 0; col < dims.cols; col++) {
+        const ch   = matrixCh(slot, row + 1, col + 1);
+        const node = document.getElementById(`rnode-${s}-${ch}`);
+        if (node) {
+          node.classList.remove('on');
+          const dot = node.querySelector('.relay-dot');
+          dot.style.background  = '#21262d';
+          dot.style.borderColor = '#30363d';
+        }
+      }
+    }
+    updateRelayBlocked(ip, slot);
+    drawRelayWires(ip, slot);
+  }
+
+  function drawRelayWires(ip, slot) {
+    const s    = ip.replace(/\./g, '_');
+    const svg  = document.getElementById(`relay-svg-${s}-${slot}`);
+    const wrap = document.getElementById(`relay-wrap-${s}-${slot}`);
+    if (!svg || !wrap) return;
+
+    const dims     = getDims(ip, slot);
+    const wrapRect = wrap.getBoundingClientRect();
+    svg.setAttribute('width',  wrapRect.width);
+    svg.setAttribute('height', wrapRect.height);
+    svg.innerHTML = '';
+
+    const ns = 'http://www.w3.org/2000/svg';
+
+    for (let r = 0; r < dims.rows; r++) {
+      for (let c = 0; c < dims.cols; c++) {
+        const ch   = matrixCh(slot, r + 1, c + 1);
+        const node = document.getElementById(`rnode-${s}-${ch}`);
+        if (!node || !node.classList.contains('on')) continue;
+
+        const color    = node.dataset.color;
+        const nodeRect = node.getBoundingClientRect();
+        const nx = nodeRect.left + nodeRect.width  / 2 - wrapRect.left;
+        const ny = nodeRect.top  + nodeRect.height / 2 - wrapRect.top;
+
+        const colEl   = document.getElementById(`rcol-${s}-${slot}-${c}`);
+        const colRect = colEl.getBoundingClientRect();
+        const cy = colRect.bottom - wrapRect.top;
+
+        const rowEl   = document.getElementById(`rrow-${s}-${slot}-${r}`);
+        const rowRect = rowEl.getBoundingClientRect();
+        const rx = rowRect.right - wrapRect.left;
+
+        const vl = document.createElementNS(ns, 'line');
+        vl.setAttribute('x1', nx); vl.setAttribute('y1', cy);
+        vl.setAttribute('x2', nx); vl.setAttribute('y2', ny);
+        vl.setAttribute('stroke', color);
+        vl.setAttribute('stroke-width', '2');
+        vl.setAttribute('stroke-linecap', 'round');
+        vl.setAttribute('opacity', '0.5');
+        svg.appendChild(vl);
+
+        const hl = document.createElementNS(ns, 'line');
+        hl.setAttribute('x1', rx); hl.setAttribute('y1', ny);
+        hl.setAttribute('x2', nx); hl.setAttribute('y2', ny);
+        hl.setAttribute('stroke', color);
+        hl.setAttribute('stroke-width', '2');
+        hl.setAttribute('stroke-linecap', 'round');
+        hl.setAttribute('opacity', '0.5');
+        svg.appendChild(hl);
+      }
+    }
+  }
+
+  // ── Boot: restore pre-connected instruments ───────────────────────────────
+  (async () => {
+    const r = await fetch(api('/instruments'));
+    const d = await r.json();
+    for (const info of (d.instruments || [])) {
+      addInstrumentTab(info);
+      subscribeInstrument(info.ip);
+    }
+    if ((d.instruments || []).length === 0) {
+      const badge = document.getElementById('status-badge');
+      badge.textContent = 'Connecting...';
+      let attempts = 0;
+      const poller = setInterval(async () => {
+        attempts++;
+        try {
+          const r2 = await fetch(api('/instruments'));
+          const d2 = await r2.json();
+          if ((d2.instruments || []).length > 0) {
+            clearInterval(poller);
+            for (const info of d2.instruments) {
+              addInstrumentTab(info);
+              subscribeInstrument(info.ip);
+            }
+          } else if (attempts > 30) {
+            clearInterval(poller);
+            badge.textContent = 'Connection timeout';
+            badge.className = 'error';
+            const empty = document.getElementById('empty-state');
+            if (empty) {
+              empty.querySelector('.msg').textContent = 'Auto-connect failed';
+              empty.querySelector('.hint').textContent = 'Click + to connect manually';
+            }
+          }
+        } catch {}
+      }, 1000);
+    }
+  })();
+  </script>
+</body>
+</html>

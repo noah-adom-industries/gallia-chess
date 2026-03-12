@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #1e1e2e;
+    --card: #2a2a3a;
+    --card-hover: #323248;
+    --accent: #00b8b0;
+    --accent-dim: #009990;
+    --text: #e0e0e0;
+    --text-dim: #8888a0;
+    --grid: #3a3a4a;
+    --border: #3a3a4a;
+    --danger: #e05555;
+    --danger-hover: #c04444;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Top Bar */
+  .topbar {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .topbar-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--accent);
+    white-space: nowrap;
+    margin-right: auto;
+  }
+
+  .topbar-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .series-toggles {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    max-width: 400px;
+  }
+
+  .series-btn {
+    padding: 4px 12px;
+    border-radius: 14px;
+    border: 2px solid;
+    background: transparent;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font);
+  }
+
+  .series-btn.active {
+    color: #fff;
+  }
+
+  .series-btn:hover { opacity: 0.8; }
+
+  .btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-family: var(--font);
+    white-space: nowrap;
+  }
+
+  .btn:hover { background: var(--card-hover); }
+  .btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.danger { border-color: var(--danger); color: var(--danger); }
+  .btn.danger:hover { background: var(--danger); color: #fff; }
+
+  .view-toggle { display: flex; gap: 0; }
+  .view-toggle .btn { border-radius: 0; margin-left: -1px; }
+  .view-toggle .btn:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .view-toggle .btn:last-child { border-radius: 0 6px 6px 0; }
+
+  /* Main area */
+  .main {
+    display: grid;
+    overflow: hidden;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .main.view-chart { grid-template-rows: 1fr; }
+  .main.view-table { grid-template-rows: 1fr; }
+  .main.view-both { grid-template-rows: 1fr 280px; }
+
+  .chart-container {
+    background: var(--card);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    padding: 16px;
+    position: relative;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .chart-wrap {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+  }
+
+  .chart-wrap canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .chart-hint {
+    position: absolute;
+    bottom: 8px;
+    right: 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+    pointer-events: none;
+  }
+
+  /* Empty state */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-dim);
+    gap: 12px;
+  }
+
+  .empty-state-icon {
+    font-size: 48px;
+    opacity: 0.4;
+  }
+
+  .empty-state-text { font-size: 16px; }
+
+  .empty-state-sub {
+    font-size: 13px;
+    opacity: 0.6;
+    max-width: 400px;
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  /* Table */
+  .table-container {
+    background: var(--card);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .table-header-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .table-count {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .table-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+  }
+
+  .table-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+  .table-scroll::-webkit-scrollbar-track { background: transparent; }
+  .table-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  thead { position: sticky; top: 0; z-index: 1; }
+
+  th {
+    background: var(--card);
+    padding: 8px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  th:hover { color: var(--accent); }
+  th .sort-arrow { margin-left: 4px; font-size: 10px; }
+
+  td {
+    padding: 6px 14px;
+    border-bottom: 1px solid rgba(58, 58, 74, 0.5);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  tr:hover td { background: rgba(0, 184, 176, 0.04); }
+
+  .series-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  /* Status bar */
+  .statusbar {
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    padding: 6px 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  .status-dot.connected { background: #44cc66; }
+  .status-dot.disconnected { background: var(--danger); }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .topbar { padding: 10px 12px; gap: 10px; }
+    .main { padding: 8px; gap: 8px; }
+    .main.view-both { grid-template-rows: 1fr 200px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-title" id="appTitle">Instrument Data Viewer</div>
+  <div class="series-toggles" id="seriesToggles"></div>
+  <div class="topbar-group">
+    <div class="view-toggle">
+      <button class="btn active" data-view="chart" onclick="setView('chart')">Chart</button>
+      <button class="btn" data-view="both" onclick="setView('both')">Both</button>
+      <button class="btn" data-view="table" onclick="setView('table')">Table</button>
+    </div>
+    <button class="btn" onclick="exportCSV()" title="Export CSV">Export CSV</button>
+    <button class="btn danger" onclick="clearAllData()" title="Clear all data">Clear</button>
+  </div>
+</div>
+
+<div class="main view-chart" id="mainArea">
+  <div class="chart-container" id="chartPanel">
+    <div class="chart-wrap" id="chartWrap">
+      <canvas id="chart"></canvas>
+    </div>
+    <div class="chart-hint">Scroll to zoom &middot; Drag to pan &middot; Double-click to reset</div>
+    <div class="empty-state" id="chartEmpty">
+      <div class="empty-state-icon">&#9776;</div>
+      <div class="empty-state-text">No data yet</div>
+      <div class="empty-state-sub">
+        Send data via POST api/data<br>
+        <code style="color:var(--accent);font-size:12px;">{"series":"voltage","x":0,"y":3.3}</code>
+      </div>
+    </div>
+  </div>
+  <div class="table-container" id="tablePanel" style="display:none;">
+    <div class="table-header">
+      <span class="table-header-title">Data Points</span>
+      <span class="table-count" id="tableCount">0 points</span>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortTable('series')">Series <span class="sort-arrow" id="sort-series"></span></th>
+            <th onclick="sortTable('x')">X <span class="sort-arrow" id="sort-x"></span></th>
+            <th onclick="sortTable('y')">Y <span class="sort-arrow" id="sort-y"></span></th>
+            <th onclick="sortTable('y2')">Y2 <span class="sort-arrow" id="sort-y2"></span></th>
+            <th onclick="sortTable('timestamp')">Time <span class="sort-arrow" id="sort-timestamp"></span></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="statusbar">
+  <span><span class="status-dot disconnected" id="statusDot"></span><span id="statusText">Connecting...</span></span>
+  <span id="statsTotalPoints">0 points</span>
+  <span id="statsSeries">0 series</span>
+</div>
+
+<script>
+// ── Color Palette ──
+const PALETTE = [
+  '#00b8b0', '#e06060', '#60a0e0', '#e0a040', '#a070d0',
+  '#50cc70', '#e07090', '#80c0c0', '#d0a070', '#7090e0',
+  '#c0c050', '#e080c0', '#60d0a0', '#b0b0e0', '#d07050'
+];
+
+const seriesColors = {};
+let colorIndex = 0;
+
+function getSeriesColor(name) {
+  if (!seriesColors[name]) {
+    seriesColors[name] = PALETTE[colorIndex % PALETTE.length];
+    colorIndex++;
+  }
+  return seriesColors[name];
+}
+
+// ── State ──
+const allData = {}; // { seriesName: [{ x, y, y2?, timestamp }] }
+const seriesVisible = {};
+let currentView = 'chart';
+let chartConfig = { title: 'Instrument Data Viewer', xLabel: 'X', yLabel: 'Y', y2Label: '', chartType: 'line', xScale: 'linear', yScale: 'linear' };
+let sortCol = 'timestamp';
+let sortDir = -1; // -1 = descending
+
+const MAX_CHART_POINTS = 10000;
+const MAX_TABLE_POINTS = 200;
+
+// ── Chart Setup ──
+const ctx = document.getElementById('chart').getContext('2d');
+let chart = new Chart(ctx, {
+  type: 'line',
+  data: { datasets: [] },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 300 },
+    interaction: { mode: 'nearest', intersect: false },
+    plugins: {
+      legend: {
+        display: true,
+        position: 'top',
+        labels: { color: '#e0e0e0', padding: 16, usePointStyle: true, pointStyleWidth: 10, font: { size: 12 } },
+        onClick: (e, legendItem, legend) => {
+          const idx = legendItem.datasetIndex;
+          const ds = chart.data.datasets[idx];
+          const name = ds.label;
+          seriesVisible[name] = !seriesVisible[name];
+          ds.hidden = !seriesVisible[name];
+          chart.update('none');
+          updateSeriesButtons();
+        }
+      },
+      tooltip: {
+        backgroundColor: '#2a2a3a',
+        borderColor: '#3a3a4a',
+        borderWidth: 1,
+        titleColor: '#e0e0e0',
+        bodyColor: '#e0e0e0',
+        padding: 10,
+        cornerRadius: 6,
+        callbacks: {
+          label: function(ctx) {
+            const ds = ctx.dataset;
+            const p = ctx.raw;
+            let lbl = `${ds.label}: x=${p.x}, y=${p.y}`;
+            if (p.y2 !== undefined) lbl += `, y2=${p.y2}`;
+            return lbl;
+          }
+        }
+      },
+      annotation: {
+        annotations: {}
+      },
+      zoom: {
+        pan: { enabled: true, mode: 'xy' },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'xy',
+          onZoomComplete: () => {}
+        }
+      }
+    },
+    scales: {
+      x: {
+        type: 'linear',
+        title: { display: true, text: 'X', color: '#8888a0', font: { size: 13 } },
+        ticks: { color: '#8888a0', font: { size: 11 } },
+        grid: { color: '#3a3a4a' },
+        border: { color: '#3a3a4a' }
+      },
+      y: {
+        type: 'linear',
+        position: 'left',
+        title: { display: true, text: 'Y', color: '#8888a0', font: { size: 13 } },
+        ticks: { color: '#8888a0', font: { size: 11 } },
+        grid: { color: '#3a3a4a' },
+        border: { color: '#3a3a4a' }
+      },
+      y2: {
+        type: 'linear',
+        position: 'right',
+        display: false,
+        title: { display: true, text: 'Y2', color: '#8888a0', font: { size: 13 } },
+        ticks: { color: '#8888a0', font: { size: 11 } },
+        grid: { drawOnChartArea: false },
+        border: { color: '#3a3a4a' }
+      }
+    }
+  }
+});
+
+// ── View Management ──
+function setView(view) {
+  currentView = view;
+  const main = document.getElementById('mainArea');
+  const chartPanel = document.getElementById('chartPanel');
+  const tablePanel = document.getElementById('tablePanel');
+
+  main.className = 'main view-' + view;
+
+  chartPanel.style.display = (view === 'table') ? 'none' : 'flex';
+  tablePanel.style.display = (view === 'chart') ? 'none' : 'flex';
+
+  document.querySelectorAll('.view-toggle .btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === view);
+  });
+
+  if (view !== 'table') {
+    setTimeout(() => chart.resize(), 50);
+  }
+}
+
+// ── Series Toggle Buttons ──
+function updateSeriesButtons() {
+  const container = document.getElementById('seriesToggles');
+  const names = Object.keys(allData);
+  container.innerHTML = '';
+  for (const name of names) {
+    const color = getSeriesColor(name);
+    const active = seriesVisible[name] !== false;
+    const btn = document.createElement('button');
+    btn.className = 'series-btn' + (active ? ' active' : '');
+    btn.style.borderColor = color;
+    if (active) btn.style.background = color;
+    btn.textContent = name;
+    btn.onclick = () => {
+      seriesVisible[name] = !active;
+      updateChart();
+      updateSeriesButtons();
+    };
+    container.appendChild(btn);
+  }
+}
+
+// ── Chart Update ──
+function updateChart() {
+  const names = Object.keys(allData);
+  const hasY2 = names.some(n => allData[n].some(p => p.y2 !== undefined));
+
+  chart.options.scales.x.title.text = chartConfig.xLabel;
+  chart.options.scales.y.title.text = chartConfig.yLabel;
+  chart.options.scales.y2.title.text = chartConfig.y2Label || 'Y2';
+  chart.options.scales.y2.display = hasY2;
+  chart.options.scales.x.type = chartConfig.xScale || 'linear';
+  chart.options.scales.y.type = chartConfig.yScale || 'linear';
+
+  const datasets = [];
+  for (const name of names) {
+    if (seriesVisible[name] === false) continue;
+    const color = getSeriesColor(name);
+    let points = allData[name];
+    if (points.length > MAX_CHART_POINTS) {
+      points = points.slice(-MAX_CHART_POINTS);
+    }
+
+    // Primary Y dataset
+    datasets.push({
+      label: name,
+      data: points.map(p => ({ x: p.x, y: p.y, y2: p.y2 })),
+      borderColor: color,
+      backgroundColor: color + '33',
+      pointBackgroundColor: color,
+      pointBorderColor: color,
+      pointRadius: chartConfig.chartType === 'scatter' ? 4 : (points.length > 500 ? 0 : 2),
+      pointHoverRadius: 5,
+      borderWidth: chartConfig.chartType === 'scatter' ? 0 : 2,
+      showLine: chartConfig.chartType !== 'scatter',
+      fill: false,
+      tension: 0.1,
+      yAxisID: 'y',
+      hidden: false
+    });
+
+    // Y2 dataset if present
+    if (hasY2 && points.some(p => p.y2 !== undefined)) {
+      datasets.push({
+        label: name + ' (Y2)',
+        data: points.filter(p => p.y2 !== undefined).map(p => ({ x: p.x, y: p.y2 })),
+        borderColor: color,
+        backgroundColor: color + '33',
+        pointBackgroundColor: color,
+        pointBorderColor: color,
+        pointRadius: chartConfig.chartType === 'scatter' ? 4 : (points.length > 500 ? 0 : 2),
+        pointHoverRadius: 5,
+        borderWidth: 2,
+        borderDash: [5, 3],
+        showLine: chartConfig.chartType !== 'scatter',
+        fill: false,
+        tension: 0.1,
+        yAxisID: 'y2',
+        hidden: false
+      });
+    }
+  }
+
+  chart.data.datasets = datasets;
+  chart.update();
+
+  // Empty state
+  const totalPoints = names.reduce((sum, n) => sum + allData[n].length, 0);
+  document.getElementById('chartEmpty').style.display = totalPoints === 0 ? 'flex' : 'none';
+}
+
+// ── Table Update ──
+function updateTable() {
+  const names = Object.keys(allData);
+  let rows = [];
+  for (const name of names) {
+    for (const p of allData[name]) {
+      rows.push({ series: name, x: p.x, y: p.y, y2: p.y2, timestamp: p.timestamp });
+    }
+  }
+
+  // Sort
+  rows.sort((a, b) => {
+    let va = a[sortCol], vb = b[sortCol];
+    if (va === undefined) va = '';
+    if (vb === undefined) vb = '';
+    if (typeof va === 'string') return sortDir * va.localeCompare(vb);
+    return sortDir * (va - vb);
+  });
+
+  // Limit
+  rows = rows.slice(0, MAX_TABLE_POINTS);
+
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = rows.map(r => {
+    const color = getSeriesColor(r.series);
+    const time = r.timestamp ? new Date(r.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 1 }) : '';
+    return `<tr>
+      <td><span class="series-dot" style="background:${color}"></span>${escHTML(r.series)}</td>
+      <td>${formatNum(r.x)}</td>
+      <td>${formatNum(r.y)}</td>
+      <td>${r.y2 !== undefined ? formatNum(r.y2) : ''}</td>
+      <td style="color:var(--text-dim)">${time}</td>
+    </tr>`;
+  }).join('');
+
+  // Update sort arrows
+  document.querySelectorAll('.sort-arrow').forEach(el => el.textContent = '');
+  const arrow = document.getElementById('sort-' + sortCol);
+  if (arrow) arrow.textContent = sortDir === 1 ? '\u25B2' : '\u25BC';
+
+  const totalPoints = Object.values(allData).reduce((s, a) => s + a.length, 0);
+  document.getElementById('tableCount').textContent = `${Math.min(totalPoints, MAX_TABLE_POINTS)} of ${totalPoints} points`;
+}
+
+function sortTable(col) {
+  if (sortCol === col) {
+    sortDir *= -1;
+  } else {
+    sortCol = col;
+    sortDir = col === 'timestamp' ? -1 : 1;
+  }
+  updateTable();
+}
+
+function formatNum(v) {
+  if (v === undefined || v === null) return '';
+  if (Number.isInteger(v)) return v.toString();
+  return Number(v.toPrecision(7)).toString();
+}
+
+function escHTML(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Stats ──
+function updateStats() {
+  const names = Object.keys(allData);
+  const total = names.reduce((s, n) => s + allData[n].length, 0);
+  document.getElementById('statsTotalPoints').textContent = total.toLocaleString() + ' points';
+  document.getElementById('statsSeries').textContent = names.length + ' series';
+}
+
+// ── Actions ──
+function clearAllData() {
+  if (!confirm('Clear all data?')) return;
+  fetch('api/data', { method: 'DELETE' });
+}
+
+function exportCSV() {
+  const names = Object.keys(allData);
+  if (names.length === 0) return;
+
+  let csv = 'series,x,y,y2,timestamp\n';
+  for (const name of names) {
+    for (const p of allData[name]) {
+      csv += `${name},${p.x},${p.y},${p.y2 !== undefined ? p.y2 : ''},${p.timestamp || ''}\n`;
+    }
+  }
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'data-export-' + new Date().toISOString().slice(0, 19).replace(/:/g, '-') + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Config ──
+function applyConfig(cfg) {
+  const oldXScale = chartConfig.xScale;
+  const oldYScale = chartConfig.yScale;
+  chartConfig = { ...chartConfig, ...cfg };
+  document.getElementById('appTitle').textContent = chartConfig.title;
+  document.title = chartConfig.title;
+
+  // If scale type changed, destroy and recreate chart
+  if (chartConfig.xScale !== oldXScale || chartConfig.yScale !== oldYScale) {
+    rebuildChart();
+  }
+  updateChart();
+}
+
+function rebuildChart() {
+  const savedAnnotations = chart.options.plugins.annotation.annotations;
+  const xType = chartConfig.xScale || 'linear';
+  const yType = chartConfig.yScale || 'linear';
+  chart.destroy();
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 300 },
+      interaction: { mode: 'nearest', intersect: false },
+      plugins: {
+        legend: {
+          display: true, position: 'top',
+          labels: { color: '#e0e0e0', padding: 16, usePointStyle: true, pointStyleWidth: 10, font: { size: 12 } },
+          onClick: (e, legendItem, legend) => {
+            const idx = legendItem.datasetIndex;
+            const ds = chart.data.datasets[idx];
+            const name = ds.label;
+            seriesVisible[name] = !seriesVisible[name];
+            ds.hidden = !seriesVisible[name];
+            chart.update('none');
+            updateSeriesButtons();
+          }
+        },
+        tooltip: {
+          backgroundColor: '#2a2a3a', borderColor: '#3a3a4a', borderWidth: 1,
+          titleColor: '#e0e0e0', bodyColor: '#e0e0e0', padding: 10, cornerRadius: 6,
+          callbacks: {
+            label: function(ctx) {
+              const ds = ctx.dataset;
+              const p = ctx.raw;
+              let lbl = ds.label + ': x=' + p.x + ', y=' + p.y;
+              if (p.y2 !== undefined) lbl += ', y2=' + p.y2;
+              return lbl;
+            }
+          }
+        },
+        annotation: { annotations: savedAnnotations || {} },
+        zoom: {
+          pan: { enabled: true, mode: 'xy' },
+          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }
+        }
+      },
+      scales: {
+        x: {
+          type: xType,
+          title: { display: true, text: chartConfig.xLabel, color: '#8888a0', font: { size: 13 } },
+          ticks: { color: '#8888a0', font: { size: 11 } },
+          grid: { color: '#3a3a4a' }, border: { color: '#3a3a4a' }
+        },
+        y: {
+          type: yType, position: 'left',
+          title: { display: true, text: chartConfig.yLabel, color: '#8888a0', font: { size: 13 } },
+          ticks: { color: '#8888a0', font: { size: 11 } },
+          grid: { color: '#3a3a4a' }, border: { color: '#3a3a4a' }
+        },
+        y2: {
+          type: 'linear', position: 'right', display: false,
+          title: { display: true, text: chartConfig.y2Label || 'Y2', color: '#8888a0', font: { size: 13 } },
+          ticks: { color: '#8888a0', font: { size: 11 } },
+          grid: { drawOnChartArea: false }, border: { color: '#3a3a4a' }
+        }
+      }
+    }
+  });
+}
+
+// ── Connection (SSE with polling fallback) ──
+let eventSource = null;
+let reconnectTimer = null;
+let pollTimer = null;
+let usePolling = false;
+let sseFailCount = 0;
+let lastPointCounts = {};
+
+function setConnected(yes) {
+  document.getElementById('statusDot').className = 'status-dot ' + (yes ? 'connected' : 'disconnected');
+  document.getElementById('statusText').textContent = yes ? (usePolling ? 'Polling' : 'Connected') : 'Connecting...';
+}
+
+function applySnapshot(snapshot) {
+  for (const [name, points] of Object.entries(snapshot)) {
+    allData[name] = points;
+    if (seriesVisible[name] === undefined) seriesVisible[name] = true;
+  }
+  updateChart(); updateTable(); updateSeriesButtons(); updateStats();
+}
+
+function applyDataPoints(points) {
+  for (const p of points) {
+    const name = p.series;
+    if (!allData[name]) allData[name] = [];
+    allData[name].push({ x: p.x, y: p.y, y2: p.y2, timestamp: p.timestamp });
+    if (allData[name].length > MAX_CHART_POINTS * 2) {
+      allData[name] = allData[name].slice(-MAX_CHART_POINTS * 2);
+    }
+    if (seriesVisible[name] === undefined) seriesVisible[name] = true;
+  }
+  updateChart(); updateTable(); updateSeriesButtons(); updateStats();
+}
+
+function connectSSE() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('api/events');
+
+  const sseTimeout = setTimeout(() => {
+    // If no open event within 5s, fall back to polling
+    sseFailCount++;
+    if (sseFailCount >= 2) { startPolling(); eventSource.close(); }
+  }, 5000);
+
+  eventSource.addEventListener('open', () => {
+    clearTimeout(sseTimeout);
+    sseFailCount = 0;
+    setConnected(true);
+  });
+
+  eventSource.addEventListener('config', (e) => applyConfig(JSON.parse(e.data)));
+  eventSource.addEventListener('snapshot', (e) => applySnapshot(JSON.parse(e.data)));
+  eventSource.addEventListener('data', (e) => applyDataPoints(JSON.parse(e.data)));
+  eventSource.addEventListener('annotations', (e) => applyAnnotations(JSON.parse(e.data)));
+
+  eventSource.addEventListener('clear', (e) => {
+    const { series } = JSON.parse(e.data);
+    if (series) { delete allData[series]; delete seriesVisible[series]; }
+    else { for (const k of Object.keys(allData)) delete allData[k]; for (const k of Object.keys(seriesVisible)) delete seriesVisible[k]; }
+    updateChart(); updateTable(); updateSeriesButtons(); updateStats();
+  });
+
+  eventSource.addEventListener('error', () => {
+    setConnected(false);
+    eventSource.close();
+    clearTimeout(reconnectTimer);
+    sseFailCount++;
+    if (sseFailCount >= 2) { startPolling(); }
+    else { reconnectTimer = setTimeout(connectSSE, 3000); }
+  });
+}
+
+function startPolling() {
+  usePolling = true;
+  if (pollTimer) return;
+  pollData();
+  pollTimer = setInterval(pollData, 2000);
+}
+
+async function pollData() {
+  try {
+    const [configRes, dataRes, annRes] = await Promise.all([
+      fetch('api/config'), fetch('api/data'), fetch('api/annotations')
+    ]);
+    if (configRes.ok) applyConfig(await configRes.json());
+    if (dataRes.ok) {
+      const snapshot = await dataRes.json();
+      applySnapshot(snapshot);
+    }
+    if (annRes.ok) applyAnnotations(await annRes.json());
+    setConnected(true);
+  } catch (e) {
+    setConnected(false);
+  }
+}
+
+// ── Annotations ──
+function applyAnnotations(ann) {
+  chart.options.plugins.annotation.annotations = ann;
+  chart.update();
+}
+
+// ── Double click to reset zoom ──
+document.getElementById('chart').addEventListener('dblclick', () => {
+  chart.resetZoom();
+});
+
+// ── Init ──
+connectSSE();
+</script>
+</body>
+</html>

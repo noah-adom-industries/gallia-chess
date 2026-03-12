@@ -1,0 +1,9 @@
+{
+  "name": "service-red-pitaya",
+  "version": "1.0.0",
+  "description": "Red Pitaya middleware service — middleman for RP interaction",
+  "main": "server.js",
+  "dependencies": {
+    "ws": "^8.19.0"
+  }
+}

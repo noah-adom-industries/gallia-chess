@@ -1,0 +1,1630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta http-equiv="cache-control" content="no-cache">
+<title>Oscilloscope — Red Pitaya</title>
+<!-- Dependencies -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+<style>
+:root {
+  --bg-primary: #0D1117; --bg-panel: #161B22; --bg-control: #21262D;
+  --bg-input: #0D1117; --border: #30363D; --text-primary: #E6EDF3;
+  --text-secondary: #8B949E; --text-dim: #484F58;
+  --ch1: #F5A623; --ch2: #4FC3F7; --out1: #9595ca; --out2: #ee3739;
+  --math: #66BB6A; --trigger: #F85149; --accent: #58A6FF; --warning: #D29922;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;margin:0;padding:0;overflow:hidden}
+body{font-family:'IBM Plex Sans',-apple-system,sans-serif;background:var(--bg-primary);color:var(--text-primary);display:flex;flex-direction:column;user-select:none;-webkit-user-select:none}
+
+/* Loading overlay */
+#loader-wrapper{position:fixed;inset:0;background:var(--bg-primary);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#loader-wrapper.hidden{display:none}
+.loader-spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loader-text{margin-top:16px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text-secondary)}
+
+/* Toolbar */
+.toolbar{display:flex;align-items:center;justify-content:space-between;padding:0 8px;height:34px;min-height:34px;background:var(--bg-panel);border-bottom:1px solid var(--border)}
+.toolbar-left,.toolbar-center,.toolbar-right{display:flex;align-items:center;gap:6px}
+.toolbar-left{gap:14px}
+.btn-home{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;text-decoration:none;transition:all .15s;border:1px solid transparent}
+.btn-home:hover{background:var(--bg-control);color:var(--text-primary);border-color:var(--border)}
+.btn-home svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
+.toolbar-title{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.5px}
+.tb-btn{padding:3px 10px;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--bg-control);color:var(--text-secondary);transition:all .15s;letter-spacing:.5px}
+.tb-btn:hover{border-color:var(--text-secondary);color:var(--text-primary)}
+.tb-btn.run{color:var(--math);border-color:rgba(102,187,106,.3)}
+.tb-btn.run:hover{background:rgba(102,187,106,.1);border-color:var(--math)}
+.tb-btn.run.active{background:rgba(102,187,106,.15);border-color:var(--math);color:var(--math)}
+.tb-btn.single{color:var(--ch1);border-color:rgba(245,166,35,.3)}
+.tb-btn.single:hover{background:rgba(245,166,35,.1);border-color:var(--ch1)}
+.tb-btn.stop{color:var(--trigger);border-color:rgba(248,81,73,.3)}
+.tb-btn.stop:hover{background:rgba(248,81,73,.1);border-color:var(--trigger)}
+.tb-btn.stop.active{background:rgba(248,81,73,.15);border-color:var(--trigger);color:var(--trigger)}
+#btn-snap.active{background:rgba(88,166,255,.12);border-color:var(--accent);color:var(--accent);opacity:1!important}
+.trig-status{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;padding:3px 10px;border-radius:4px;letter-spacing:1px;background:rgba(102,187,106,.1);color:var(--math);border:1px solid rgba(102,187,106,.2)}
+.trig-status.waiting{color:var(--warning);background:rgba(210,153,34,.1);border-color:rgba(210,153,34,.2)}
+.trig-status.stopped{color:var(--trigger);background:rgba(248,81,73,.1);border-color:rgba(248,81,73,.2)}
+.trig-status.triggered{color:var(--accent);background:rgba(88,166,255,.1);border-color:rgba(88,166,255,.2)}
+
+/* Main layout */
+.main-area{flex:1;display:flex;overflow:hidden}
+.canvas-container{flex:1;position:relative;background:var(--bg-primary);overflow:hidden}
+#waveform-canvas{position:absolute;inset:0;width:100%;height:100%}
+.scale-badge{position:absolute;bottom:8px;padding:2px 6px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;z-index:3;background:rgba(13,17,23,.85);border:1px solid var(--border);cursor:ns-resize}
+.scale-badge:hover{background:rgba(13,17,23,.95);border-color:var(--text-secondary)}
+.scale-badge.active-ch{border-width:2px}
+.scale-badge.ch1{left:10px;color:var(--ch1);border-color:rgba(245,166,35,.3)}
+.scale-badge.ch2{left:130px;color:var(--ch2);border-color:rgba(79,195,247,.3)}
+.scale-badge.time{right:10px;color:var(--text-secondary)}
+
+/* Sidebar */
+.sidebar{width:180px;min-width:180px;background:var(--bg-panel);border-left:1px solid var(--border);overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--bg-control) transparent;display:none}
+.sidebar.open{display:block}
+.sidebar::-webkit-scrollbar{width:4px}
+.sidebar::-webkit-scrollbar-thumb{background:var(--bg-control);border-radius:2px}
+.side-section{border-bottom:1px solid var(--border);padding:12px 14px}
+.side-section:last-child{border-bottom:none}
+.side-header{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px}
+.ch-btn{display:flex;align-items:center;justify-content:space-between;width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-control);cursor:pointer;transition:all .15s;margin-bottom:6px}
+.ch-btn:last-child{margin-bottom:0}
+.ch-btn-left{display:flex;align-items:center;gap:8px}
+.ch-dot{width:8px;height:8px;border-radius:50%}
+.ch-dot.c1{background:var(--ch1);box-shadow:0 0 6px var(--ch1)}
+.ch-dot.c2{background:var(--ch2);box-shadow:0 0 6px var(--ch2)}
+.ch-dot.math{background:var(--math);box-shadow:0 0 6px var(--math)}
+.ch-dot.off{opacity:.25;box-shadow:none}
+.ch-name{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600}
+.ch-scale{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-secondary)}
+.ch-btn:hover{border-color:var(--text-secondary)}
+.ch-btn.active{border-color:var(--accent)}
+.ctrl-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.ctrl-row:last-child{margin-bottom:0}
+.ctrl-label{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-secondary)}
+.ctrl-value{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;color:var(--text-primary)}
+.ctrl-select{background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 6px;outline:none;cursor:pointer}
+.ctrl-select:hover{border-color:var(--text-secondary)}
+.toggle-group{display:flex;border-radius:4px;overflow:hidden;border:1px solid var(--border)}
+.toggle-opt{padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-secondary);background:var(--bg-control);cursor:pointer;border-right:1px solid var(--border);transition:all .15s}
+.toggle-opt:last-child{border-right:none}
+.toggle-opt.active{background:rgba(88,166,255,.12);color:var(--accent)}
+.toggle-opt:hover{color:var(--text-primary)}
+.out-ctrl{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.out-toggle{padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg-control);font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:var(--text-secondary);cursor:pointer;transition:all .15s}
+.out-toggle.on{background:rgba(102,187,106,.15);color:var(--math);border-color:rgba(102,187,106,.3)}
+.out-toggle:hover{border-color:var(--text-secondary)}
+.out-sync{padding:3px 8px;border-radius:4px;border:1px solid rgba(88,166,255,.3);background:var(--bg-control);font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:var(--accent);cursor:pointer;transition:all .15s}
+.out-sync:hover{background:rgba(88,166,255,.12);border-color:var(--accent)}
+.out-sync:active{background:rgba(88,166,255,.25)}
+.sweep-burst-group{padding-left:8px;border-left:2px solid var(--border);margin:2px 0 2px 4px}
+.ctrl-input{width:80px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:12px;padding:4px 8px;outline:none;text-align:right}
+.ctrl-input:focus{border-color:var(--accent)}
+.ctrl-unit{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);min-width:28px}
+
+/* Bottom + Meas bar */
+.bottom-bar{display:flex;align-items:center;justify-content:space-between;height:24px;min-height:24px;padding:0 10px;background:var(--bg-panel);border-top:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:10px}
+.bottom-left,.bottom-right{display:flex;align-items:center;gap:16px}
+.bottom-item{display:flex;align-items:center;gap:6px;color:var(--text-secondary)}
+.bottom-item .val{color:var(--text-primary);font-weight:500}
+.bottom-sep{width:1px;height:16px;background:var(--border)}
+.meas-bar{display:flex;align-items:center;height:22px;min-height:22px;padding:0 10px;gap:16px;background:var(--bg-primary);border-top:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:10px}
+.meas-label{color:var(--text-dim);font-size:10px;letter-spacing:1px;font-weight:600}
+.meas-item{display:flex;align-items:center;gap:6px;color:var(--text-secondary)}
+.meas-item .meas-val{color:var(--text-primary);font-weight:500}
+.meas-item.ch1 .meas-val{color:var(--ch1)}
+.meas-item.ch2 .meas-val{color:var(--ch2)}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loader-wrapper">
+  <div class="loader-spinner"></div>
+  <div id="loader-text">Connecting to Red Pitaya...</div>
+</div>
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <div class="toolbar-left">
+    <a class="btn-home" href="#"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>Home</a>
+    <span class="toolbar-title">OSCILLOSCOPE + SIG GEN</span>
+  </div>
+  <div class="toolbar-center">
+    <span class="trig-status" id="trig-status">AUTO</span>
+  </div>
+  <div class="toolbar-right">
+    <button class="tb-btn run active" id="btn-run">&#9654; RUN</button>
+    <button class="tb-btn single" id="btn-single">SINGLE</button>
+    <button class="tb-btn" id="btn-persist" title="Toggle dot persistence mode">PERSIST</button>
+    <input class="ctrl-input" id="persist-dur" type="number" value="10" min="1" max="60" step="1" style="width:36px;font-size:10px;padding:2px 4px;text-align:center" title="Persistence duration (seconds)">
+    <button class="tb-btn stop" id="btn-stop">&#9632; STOP</button>
+    <button class="tb-btn" id="btn-auto">AUTO</button>
+    <button class="tb-btn" id="btn-snap" title="Toggle grid snapping" style="margin-left:4px;padding:3px 7px;opacity:.5">SNAP</button>
+    <button class="tb-btn" id="btn-sidebar" title="Toggle sidebar" style="margin-left:4px;padding:3px 7px">&#9776;</button>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main-area">
+  <div class="canvas-container" id="canvas-container">
+    <canvas id="waveform-canvas"></canvas>
+    <div class="scale-badge ch1" id="badge-ch1">IN1 —</div>
+    <div class="scale-badge ch2" id="badge-ch2">IN2 —</div>
+    <div class="scale-badge time" id="badge-time">—</div>
+  </div>
+  <div class="sidebar open">
+    <div class="side-section">
+      <div class="side-header">Channels</div>
+      <div class="ch-btn active" data-ch="ch1" id="btn-ch1">
+        <div class="ch-btn-left"><div class="ch-dot c1"></div><span class="ch-name">IN1</span></div>
+        <span class="ch-scale" id="ch1-scale">—</span>
+      </div>
+      <div class="ch-btn" data-ch="ch2" id="btn-ch2">
+        <div class="ch-btn-left"><div class="ch-dot c2"></div><span class="ch-name">IN2</span></div>
+        <span class="ch-scale" id="ch2-scale">—</span>
+      </div>
+      <div class="ch-btn" data-ch="math" id="btn-math">
+        <div class="ch-btn-left"><div class="ch-dot math off"></div><span class="ch-name">MATH</span></div>
+        <span class="ch-scale">—</span>
+      </div>
+    </div>
+    <div class="side-section" id="ch1-settings">
+      <div class="side-header" style="color:var(--ch1)">Input 1</div>
+      <div class="ctrl-row"><span class="ctrl-label">Scale</span>
+        <select class="ctrl-select vscale-select" id="ch1-vdiv-sel" data-param="GPOS_SCALE_CH1">
+          <option value="0.001">1 mV</option><option value="0.002">2 mV</option><option value="0.005">5 mV</option>
+          <option value="0.01">10 mV</option><option value="0.02">20 mV</option><option value="0.05">50 mV</option>
+          <option value="0.1">100 mV</option><option value="0.2">200 mV</option><option value="0.5" selected>500 mV</option>
+          <option value="1">1 V</option><option value="2">2 V</option><option value="5">5 V</option><option value="10">10 V</option>
+        </select>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Probe</span>
+        <select class="ctrl-select" id="OSC_CH1_PROBE"><option value="1">1x</option><option value="10">10x</option><option value="100">100x</option></select>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Coupling</span>
+        <div class="toggle-group" id="tg-coupling1">
+          <div class="toggle-opt" data-val="0">AC</div>
+          <div class="toggle-opt active" data-val="1">DC</div>
+        </div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Gain</span>
+        <div class="toggle-group" id="tg-gain1">
+          <div class="toggle-opt active" data-val="0">LV</div>
+          <div class="toggle-opt" data-val="1">HV</div>
+        </div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Offset</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input" id="ch1-offset-input" value="0" style="width:60px;color:var(--ch1)"><span class="ctrl-unit">div</span></div>
+      </div>
+    </div>
+    <div class="side-section" id="ch2-settings">
+      <div class="side-header" style="color:var(--ch2)">Input 2</div>
+      <div class="ctrl-row"><span class="ctrl-label">Scale</span>
+        <select class="ctrl-select vscale-select" id="ch2-vdiv-sel" data-param="GPOS_SCALE_CH2">
+          <option value="0.001">1 mV</option><option value="0.002">2 mV</option><option value="0.005">5 mV</option>
+          <option value="0.01">10 mV</option><option value="0.02">20 mV</option><option value="0.05">50 mV</option>
+          <option value="0.1">100 mV</option><option value="0.2">200 mV</option><option value="0.5" selected>500 mV</option>
+          <option value="1">1 V</option><option value="2">2 V</option><option value="5">5 V</option><option value="10">10 V</option>
+        </select>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Probe</span>
+        <select class="ctrl-select" id="OSC_CH2_PROBE"><option value="1">1x</option><option value="10">10x</option><option value="100">100x</option></select>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Coupling</span>
+        <div class="toggle-group" id="tg-coupling2">
+          <div class="toggle-opt" data-val="0">AC</div>
+          <div class="toggle-opt active" data-val="1">DC</div>
+        </div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Gain</span>
+        <div class="toggle-group" id="tg-gain2">
+          <div class="toggle-opt active" data-val="0">LV</div>
+          <div class="toggle-opt" data-val="1">HV</div>
+        </div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Offset</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input" id="ch2-offset-input" value="0" style="width:60px;color:var(--ch2)"><span class="ctrl-unit">div</span></div>
+      </div>
+    </div>
+    <div class="side-section">
+      <div class="side-header" style="color:var(--trigger)">Trigger</div>
+      <div class="ctrl-row"><span class="ctrl-label">Source</span>
+        <select class="ctrl-select" id="OSC_TRIG_SOURCE"><option value="0">IN1</option><option value="1">IN2</option><option value="2">EXT</option></select>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Edge</span>
+        <div class="toggle-group" id="tg-edge">
+          <div class="toggle-opt active" data-val="1">&#8599;</div>
+          <div class="toggle-opt" data-val="0">&#8600;</div>
+        </div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Level</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input" id="trig-level-input" value="0" style="width:60px;color:var(--trigger)"><span class="ctrl-unit">V</span></div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">H.Pos</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input" id="time-offset-input" value="0" style="width:60px;color:var(--trigger)"><span class="ctrl-unit">ms</span></div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Mode</span>
+        <div class="toggle-group" id="tg-sweep">
+          <div class="toggle-opt active" data-val="0">AUTO</div>
+          <div class="toggle-opt" data-val="1">NORM</div>
+          <div class="toggle-opt" data-val="2">SING</div>
+        </div>
+      </div>
+    </div>
+    <div class="side-section">
+      <div class="side-header" style="color:var(--out1)">Output 1</div>
+      <div class="out-ctrl">
+        <span class="ch-name" style="font-size:11px">OUT1</span>
+        <div class="out-toggle" id="out1-state">OFF</div>
+        <div class="out-toggle" id="out1-show" title="Show on graph">EYE</div>
+        <div class="out-sync" id="sync-gen" title="Sync generators">SYNC</div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Type</span>
+        <select class="ctrl-select" id="SOUR1_FUNC"><option value="0">SINE</option><option value="1">SQUARE</option><option value="2">TRIANGLE</option><option value="3">SAWUP</option><option value="4">SAWDOWN</option><option value="5">DC</option><option value="6">PWM</option></select>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Freq</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_FREQ_FIX" value="1000" data-type="float"><span class="ctrl-unit">Hz</span></div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Ampl</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_VOLT" value="0.5" data-type="float"><span class="ctrl-unit">Vpp</span></div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Offset</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_VOLT_OFFS" value="0" data-type="float"><span class="ctrl-unit">V</span></div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Phase</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_PHAS" value="0" data-type="float"><span class="ctrl-unit">°</span></div>
+      </div>
+      <div class="ctrl-row sour-dcyc" id="sour1-dcyc-row" style="display:none"><span class="ctrl-label">Duty</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_DCYC" value="50" data-type="float"><span class="ctrl-unit">%</span></div>
+      </div>
+      <!-- Sweep -->
+      <div class="ctrl-row" style="margin-top:4px"><span class="ctrl-label" style="font-weight:600">Sweep</span>
+        <div class="out-toggle sweep-toggle" id="sour1-sweep-state">OFF</div>
+      </div>
+      <div class="sweep-burst-group" id="sour1-sweep-group" style="display:none">
+        <div class="ctrl-row"><span class="ctrl-label">Start</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_SWEEP_FREQ_START" value="100" data-type="float"><span class="ctrl-unit">Hz</span></div>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">End</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_SWEEP_FREQ_END" value="10000" data-type="float"><span class="ctrl-unit">Hz</span></div>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Time</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_SWEEP_TIME" value="1" data-type="float"><span class="ctrl-unit">s</span></div>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Dir</span>
+          <select class="ctrl-select sweep-burst-select" id="SOUR1_SWEEP_DIR"><option value="0">UP_DOWN</option><option value="1">DOWN_UP</option></select>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Mode</span>
+          <select class="ctrl-select sweep-burst-select" id="SOUR1_SWEEP_MODE"><option value="0">LINEAR</option><option value="1">LOG</option></select>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Repeat</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input sweep-rep-input" id="SOUR1_SWEEP_REP" value="1" data-type="int"><div class="out-toggle sweep-inf-toggle" id="sour1-sweep-inf">INF</div></div>
+        </div>
+      </div>
+      <!-- Burst -->
+      <div class="ctrl-row" style="margin-top:4px"><span class="ctrl-label" style="font-weight:600">Burst</span>
+        <div class="out-toggle burst-toggle" id="sour1-burst-state">OFF</div>
+      </div>
+      <div class="sweep-burst-group" id="sour1-burst-group" style="display:none">
+        <div class="ctrl-row"><span class="ctrl-label">Count</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_BURST_COUNT" value="1" data-type="int"><span class="ctrl-unit">cyc</span></div>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Reps</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_BURST_REP" value="1" data-type="int"><span class="ctrl-unit"></span></div>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Delay</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR1_BURST_DELAY" value="0" data-type="float"><span class="ctrl-unit">us</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="side-section">
+      <div class="side-header" style="color:var(--out2)">Output 2</div>
+      <div class="out-ctrl">
+        <span class="ch-name" style="font-size:11px">OUT2</span>
+        <div class="out-toggle" id="out2-state">OFF</div>
+        <div class="out-toggle" id="out2-show" title="Show on graph">EYE</div>
+        <div class="out-sync" id="sync-gen2" title="Sync generators">SYNC</div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Type</span>
+        <select class="ctrl-select" id="SOUR2_FUNC"><option value="0">SINE</option><option value="1">SQUARE</option><option value="2">TRIANGLE</option><option value="3">SAWUP</option><option value="4">SAWDOWN</option><option value="5">DC</option><option value="6">PWM</option></select>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Freq</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_FREQ_FIX" value="1000" data-type="float"><span class="ctrl-unit">Hz</span></div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Ampl</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_VOLT" value="0.5" data-type="float"><span class="ctrl-unit">Vpp</span></div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Offset</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_VOLT_OFFS" value="0" data-type="float"><span class="ctrl-unit">V</span></div>
+      </div>
+      <div class="ctrl-row"><span class="ctrl-label">Phase</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_PHAS" value="0" data-type="float"><span class="ctrl-unit">°</span></div>
+      </div>
+      <div class="ctrl-row sour-dcyc" id="sour2-dcyc-row" style="display:none"><span class="ctrl-label">Duty</span>
+        <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_DCYC" value="50" data-type="float"><span class="ctrl-unit">%</span></div>
+      </div>
+      <!-- Sweep -->
+      <div class="ctrl-row" style="margin-top:4px"><span class="ctrl-label" style="font-weight:600">Sweep</span>
+        <div class="out-toggle sweep-toggle" id="sour2-sweep-state">OFF</div>
+      </div>
+      <div class="sweep-burst-group" id="sour2-sweep-group" style="display:none">
+        <div class="ctrl-row"><span class="ctrl-label">Start</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_SWEEP_FREQ_START" value="100" data-type="float"><span class="ctrl-unit">Hz</span></div>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">End</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_SWEEP_FREQ_END" value="10000" data-type="float"><span class="ctrl-unit">Hz</span></div>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Time</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_SWEEP_TIME" value="1" data-type="float"><span class="ctrl-unit">s</span></div>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Dir</span>
+          <select class="ctrl-select sweep-burst-select" id="SOUR2_SWEEP_DIR"><option value="0">UP_DOWN</option><option value="1">DOWN_UP</option></select>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Mode</span>
+          <select class="ctrl-select sweep-burst-select" id="SOUR2_SWEEP_MODE"><option value="0">LINEAR</option><option value="1">LOG</option></select>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Repeat</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input sweep-rep-input" id="SOUR2_SWEEP_REP" value="1" data-type="int"><div class="out-toggle sweep-inf-toggle" id="sour2-sweep-inf">INF</div></div>
+        </div>
+      </div>
+      <!-- Burst -->
+      <div class="ctrl-row" style="margin-top:4px"><span class="ctrl-label" style="font-weight:600">Burst</span>
+        <div class="out-toggle burst-toggle" id="sour2-burst-state">OFF</div>
+      </div>
+      <div class="sweep-burst-group" id="sour2-burst-group" style="display:none">
+        <div class="ctrl-row"><span class="ctrl-label">Count</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_BURST_COUNT" value="1" data-type="int"><span class="ctrl-unit">cyc</span></div>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Reps</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_BURST_REP" value="1" data-type="int"><span class="ctrl-unit"></span></div>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Delay</span>
+          <div style="display:flex;align-items:center;gap:4px"><input class="ctrl-input gen-input" id="SOUR2_BURST_DELAY" value="0" data-type="float"><span class="ctrl-unit">us</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom -->
+<div class="bottom-bar">
+  <div class="bottom-left">
+    <div class="bottom-item"><span>Time:</span><span class="val" id="time-div">—</span></div>
+    <div class="bottom-sep"></div>
+    <div class="bottom-item"><span>Offset:</span><span class="val" id="time-offset">—</span></div>
+    <div class="bottom-sep"></div>
+    <div class="bottom-item"><span>Rate:</span><span class="val" id="sample-rate">—</span></div>
+  </div>
+  <div class="bottom-right">
+    <div class="bottom-item" id="ops-counter" style="color:var(--text-dim)"></div>
+  </div>
+</div>
+<div class="meas-bar">
+  <span class="meas-label">MEAS</span>
+  <div class="meas-item ch1"><span class="meas-name">Freq:</span><span class="meas-val" id="m-freq">—</span></div>
+  <div class="meas-item ch1"><span class="meas-name">Vpp:</span><span class="meas-val" id="m-vpp">—</span></div>
+  <div class="meas-item ch1"><span class="meas-name">Vrms:</span><span class="meas-val" id="m-vrms">—</span></div>
+  <div class="meas-item ch1"><span class="meas-name">Period:</span><span class="meas-val" id="m-period">—</span></div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   Red Pitaya Oscilloscope — Redesigned Frontend
+   Full WebSocket protocol compatible with controllerhf.so backend
+   ═══════════════════════════════════════════════════════════════ */
+(function() {
+'use strict';
+
+// ─── Config ──────────────────────────────────────────────────
+
+var COLORS = {
+  ch1: '#F5A623', ch2: '#4FC3F7', ch3: '#ee3739', ch4: '#3af7f7',
+  output1: '#9595ca', output2: '#ee3739', math: '#66BB6A',
+  trigger: '#F85149', grid: 'rgba(68,76,86,0.9)', gridCenter: 'rgba(88,96,106,1.0)'
+};
+var GRID_X = 10, GRID_Y = 8;
+
+// Clamp time offset to +/- half the visible time window
+function clampTimeOffset(offset) {
+  var timeScale = params['OSC_TIME_SCALE'] ? params['OSC_TIME_SCALE'].value : 1;
+  var maxOffset = (GRID_X / 2) * timeScale;
+  return Math.max(-maxOffset, Math.min(maxOffset, offset));
+}
+
+// ─── State ───────────────────────────────────────────────────
+var ws = null;
+var wsReady = false;
+var params = {};       // all received parameters (latest values)
+var localParams = {};  // parameters queued to send
+var running = true;
+var adcMaxRate = 125000000;
+var ch1Visible = true, ch2Visible = true, mathVisible = false;
+var activeChannel = 1; // 1 or 2 — which channel shift+scroll adjusts
+var V_STEPS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10];
+var ch1YOffset = 0, ch2YOffset = 0; // vertical offset in divisions
+var snapEnabled = false;
+
+// Signal buffers (Float32Arrays from backend)
+var signalData = {};
+
+// Canvas
+var canvas = document.getElementById('waveform-canvas');
+var ctx = canvas.getContext('2d');
+var container = document.getElementById('canvas-container');
+
+// ─── Helpers ─────────────────────────────────────────────────
+function convertVoltage(v) {
+  if (Math.abs(v) >= 1) return v.toFixed(v === Math.round(v) ? 0 : 2) + ' V';
+  if (Math.abs(v) >= 0.001) return (v * 1000).toFixed(0) + ' mV';
+  return (v * 1000000).toFixed(0) + ' uV';
+}
+
+function convertTime(ms) {
+  if (Math.abs(ms) >= 1000) return (ms / 1000).toFixed(1) + ' s';
+  if (Math.abs(ms) >= 1) return ms.toFixed(ms >= 10 ? 0 : 1) + ' ms';
+  if (Math.abs(ms) >= 0.001) return (ms * 1000).toFixed(1) + ' us';
+  return (ms * 1000000).toFixed(0) + ' ns';
+}
+
+// ─── Canvas Rendering ────────────────────────────────────────
+function resizeCanvas() {
+  var dpr = window.devicePixelRatio || 1;
+  var rect = container.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+function drawGrid(w, h) {
+  var dx = w / GRID_X, dy = h / GRID_Y;
+  for (var i = 0; i <= GRID_X; i++) {
+    ctx.strokeStyle = (i === GRID_X/2) ? COLORS.gridCenter : COLORS.grid;
+    ctx.lineWidth = (i === GRID_X/2) ? 1 : 0.5;
+    ctx.beginPath(); ctx.moveTo(i*dx+0.5, 0); ctx.lineTo(i*dx+0.5, h); ctx.stroke();
+  }
+  for (var j = 0; j <= GRID_Y; j++) {
+    ctx.strokeStyle = (j === GRID_Y/2) ? COLORS.gridCenter : COLORS.grid;
+    ctx.lineWidth = (j === GRID_Y/2) ? 1 : 0.5;
+    ctx.beginPath(); ctx.moveTo(0, j*dy+0.5); ctx.lineTo(w, j*dy+0.5); ctx.stroke();
+  }
+  // Center tick marks
+  ctx.strokeStyle = COLORS.gridCenter; ctx.lineWidth = 0.5;
+  var cx = w/2, cy = h/2;
+  for (var t = 0; t <= GRID_Y*5; t++) { var y = t*(h/(GRID_Y*5)); ctx.beginPath(); ctx.moveTo(cx-3,y); ctx.lineTo(cx+3,y); ctx.stroke(); }
+  for (var t = 0; t <= GRID_X*5; t++) { var x = t*(w/(GRID_X*5)); ctx.beginPath(); ctx.moveTo(x,cy-3); ctx.lineTo(x,cy+3); ctx.stroke(); }
+}
+
+// Handle dimensions (shared by trigger + channel markers)
+var HANDLE_W = 14, HANDLE_H = 7;
+
+function drawHandle(x, y, color, label, pointDir) {
+  // pointDir: 'left' = arrow points left (trigger, on left edge), 'right' = arrow points right (channels, on right edge)
+  ctx.fillStyle = color;
+  if (pointDir === 'left') {
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + HANDLE_W, y - HANDLE_H); ctx.lineTo(x + HANDLE_W, y + HANDLE_H); ctx.closePath(); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - HANDLE_W, y - HANDLE_H); ctx.lineTo(x - HANDLE_W, y + HANDLE_H); ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 9px sans-serif'; ctx.textBaseline = 'middle';
+  if (pointDir === 'left') { ctx.textAlign = 'left'; ctx.fillText(label, x + 2, y); }
+  else { ctx.textAlign = 'right'; ctx.fillText(label, x - 3, y); }
+}
+
+function getChannelY(ch) {
+  var pxPerDiv = container.getBoundingClientRect().height / GRID_Y;
+  var cy = container.getBoundingClientRect().height / 2;
+  return cy - (ch === 1 ? ch1YOffset : ch2YOffset) * pxPerDiv;
+}
+
+function drawChannelMarkers(w, h) {
+  // Draw in priority order: non-active first, active on top. Default: IN1 > IN2
+  var pxPerDiv = h / GRID_Y;
+  var cy = h / 2;
+  var order = activeChannel === 2 ? [1, 2] : [2, 1]; // draw active last (on top)
+  for (var i = 0; i < order.length; i++) {
+    var ch = order[i];
+    if (ch === 1 && ch1Visible) {
+      drawHandle(w, cy - ch1YOffset * pxPerDiv, COLORS.ch1, '1', 'right');
+    } else if (ch === 2 && ch2Visible) {
+      drawHandle(w, cy - ch2YOffset * pxPerDiv, COLORS.ch2, '2', 'right');
+    }
+  }
+}
+
+function getTrigSourceScale() {
+  var trigSrc = params['OSC_TRIG_SOURCE'] ? params['OSC_TRIG_SOURCE'].value : 0;
+  if (trigSrc === 1) return params['GPOS_SCALE_CH2'] ? params['GPOS_SCALE_CH2'].value : 1;
+  return params['GPOS_SCALE_CH1'] ? params['GPOS_SCALE_CH1'].value : 1;
+}
+
+function getTrigSourceOffset() {
+  var trigSrc = params['OSC_TRIG_SOURCE'] ? params['OSC_TRIG_SOURCE'].value : 0;
+  return trigSrc === 1 ? ch2YOffset : ch1YOffset;
+}
+
+function drawTriggerLine(w, h) {
+  var trigLevel = params['OSC_TRIG_LEVEL'] ? params['OSC_TRIG_LEVEL'].value : 0;
+  var chScale = getTrigSourceScale();
+  var chOffset = getTrigSourceOffset();
+  var cy = h / 2;
+  var pxPerDiv = h / GRID_Y;
+  var trigY = cy - chOffset * pxPerDiv - (trigLevel / chScale) * pxPerDiv;
+  trigY = Math.max(0, Math.min(h, trigY));
+
+  ctx.strokeStyle = COLORS.trigger; ctx.lineWidth = 1;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath(); ctx.moveTo(0, trigY); ctx.lineTo(w, trigY); ctx.stroke();
+  ctx.setLineDash([]);
+  drawHandle(0, trigY, COLORS.trigger, 'T', 'left');
+}
+
+function drawTriggerTimeMarker(w, h) {
+  var timeOffset = params['OSC_TIME_OFFSET'] ? params['OSC_TIME_OFFSET'].value : 0;
+  var timeScale = params['OSC_TIME_SCALE'] ? params['OSC_TIME_SCALE'].value : 1;
+  if (!timeScale) return;
+  var pxPerDivX = w / GRID_X;
+  var offsetDivs = timeOffset / timeScale;
+  var trigX = w / 2 - offsetDivs * pxPerDivX;
+  trigX = Math.max(0, Math.min(w, trigX));
+
+  // Vertical dashed line
+  ctx.strokeStyle = COLORS.trigger; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(trigX, 0); ctx.lineTo(trigX, h); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+  // Down-pointing triangle at top
+  var triW = 6, triH = 9;
+  ctx.fillStyle = COLORS.trigger;
+  ctx.beginPath();
+  ctx.moveTo(trigX - triW, 0);
+  ctx.lineTo(trigX + triW, 0);
+  ctx.lineTo(trigX, triH);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 7px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText('T', trigX, 0);
+}
+
+function drawSignal(w, h, data, startIdx, endIdx, color, vScale, lineW, yOffset) {
+  if (!data || data.length === 0) return;
+  var pxPerDiv = h / GRID_Y;
+  var cy = h / 2 - (yOffset || 0) * pxPerDiv;
+  var start = startIdx || 0;
+  var end = endIdx || data.length;
+  var len = end - start;
+  if (len <= 0) return;
+
+  if (persistenceEnabled) {
+    // PERSISTENCE: detect real ADC sample vertices via slope-change detection
+    // The RP linearly interpolates ~6 real samples into 1024 view points.
+    // Real samples are at indices where the second derivative is non-zero.
+    var now = Date.now();
+    var corners = [];
+    // Compute slopes between consecutive points
+    var slopes = new Float32Array(len - 1);
+    for (var i = 0; i < len - 1; i++) {
+      slopes[i] = data[start + i + 1] - data[start + i];
+    }
+    // First point is always a real sample
+    corners.push(0);
+    // Detect slope changes (second derivative threshold)
+    var thresh = 0.0001;
+    for (var i = 1; i < slopes.length; i++) {
+      var d2 = Math.abs(slopes[i] - slopes[i - 1]);
+      if (d2 > thresh) corners.push(i);
+    }
+    // Last point is always a real sample
+    if (corners[corners.length - 1] !== len - 1) corners.push(len - 1);
+    // Build pixel coords for only the real sample vertices
+    var nCorners = corners.length;
+    var points = new Float32Array(nCorners * 2);
+    for (var i = 0; i < nCorners; i++) {
+      var ci = corners[i];
+      points[i * 2] = (ci / len) * w;
+      points[i * 2 + 1] = cy - data[start + ci] * pxPerDiv;
+    }
+    persistenceBuffer.push({ time: now, color: color, points: points, len: nCorners });
+    var cutoff = now - persistenceDuration * 1000;
+    while (persistenceBuffer.length > 0 && persistenceBuffer[0].time < cutoff) {
+      persistenceBuffer.shift();
+    }
+    // Draw each real vertex as a visible dot (4px) with age-based alpha
+    var dotSize = 4;
+    var halfDot = dotSize / 2;
+    for (var b = 0; b < persistenceBuffer.length; b++) {
+      var entry = persistenceBuffer[b];
+      if (entry.color !== color) continue;
+      var age = (now - entry.time) / (persistenceDuration * 1000);
+      var alpha = (1.0 - age) * 0.8;
+      ctx.fillStyle = entry.color;
+      ctx.globalAlpha = alpha;
+      var p = entry.points;
+      var n = entry.len;
+      for (var j = 0; j < n; j++) {
+        ctx.fillRect(p[j * 2] - halfDot, p[j * 2 + 1] - halfDot, dotSize, dotSize);
+      }
+    }
+    ctx.globalAlpha = 1.0;
+    return;
+  }
+
+  // Normal line mode
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineW || 1.8;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (var i = 0; i < len; i++) {
+    var x = (i / len) * w;
+    var y = cy - data[start + i] * pxPerDiv;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+// Draw output waveform tiled from trigger intersection to fill screen
+function drawOutputFromTrigger(w, h, data, color, vScale, lineW) {
+  if (!data || data.length === 0) return;
+  var pxPerDiv = h / GRID_Y;
+  var cy = h / 2;
+  var timeOffset = params['OSC_TIME_OFFSET'] ? params['OSC_TIME_OFFSET'].value : 0;
+  var timeScale = params['OSC_TIME_SCALE'] ? params['OSC_TIME_SCALE'].value : 1;
+  if (!timeScale) return;
+  var pxPerDivX = w / GRID_X;
+  var offsetDivs = timeOffset / timeScale;
+  var trigX = w / 2 - offsetDivs * pxPerDivX;
+
+  // data[] is one full period of the output waveform
+  // We need to tile it to fill the screen, originating from trigX
+  var periodPx = w; // one full period spans the canvas width conceptually
+  // But the output frequency determines how many periods fit in the time window
+  // The RP sends exactly 1024 samples for one period
+  // The time window is timeScale * GRID_X seconds
+  // Output frequency from params
+  var outFreq = 1000; // default
+  var freqKey = color === COLORS.output1 ? 'SOUR1_FREQ_FIX' : 'SOUR2_FREQ_FIX';
+  if (params[freqKey]) outFreq = params[freqKey].value;
+  var periodSec = 1.0 / outFreq;
+  var windowSec = timeScale * GRID_X;
+  var periodPx = (periodSec / windowSec) * w;
+
+  if (periodPx < 1) return; // too many periods, skip
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineW || 1.2;
+  ctx.lineJoin = 'round';
+
+  // How many periods needed to cover the screen from trigX going left and right
+  var periodsLeft = Math.ceil(trigX / periodPx) + 1;
+  var periodsRight = Math.ceil((w - trigX) / periodPx) + 1;
+  var startPeriod = -periodsLeft;
+  var endPeriod = periodsRight;
+
+  ctx.beginPath();
+  var firstPoint = true;
+  for (var p = startPeriod; p < endPeriod; p++) {
+    var baseX = trigX + p * periodPx;
+    // Skip periods entirely off screen
+    if (baseX + periodPx < 0) continue;
+    if (baseX > w) break;
+
+    var step = Math.max(1, Math.floor(data.length / periodPx));
+    for (var i = 0; i < data.length; i += step) {
+      var x = baseX + (i / data.length) * periodPx;
+      if (x < -2 || x > w + 2) continue;
+      var y = cy - data[i] * pxPerDiv / vScale;
+      if (firstPoint) { ctx.moveTo(x, y); firstPoint = false; }
+      else ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+}
+
+// ─── Persistence Mode ────────────────────────────────────────
+var persistenceEnabled = false;
+var persistenceDuration = 10; // seconds
+var persistenceBuffer = []; // [{time, ch, points}]
+
+function drawSignalPersistence(w, h, data, startIdx, endIdx, color, vScale, yOffset) {
+  if (!data || data.length === 0) return;
+  var pxPerDiv = h / GRID_Y;
+  var cy = h / 2 - (yOffset || 0) * pxPerDiv;
+  var start = startIdx || 0;
+  var end = endIdx || data.length;
+  var len = end - start;
+  if (len <= 0) return;
+
+  var now = Date.now();
+  // Store all points
+  var points = new Float32Array(len * 2);
+  for (var i = 0; i < len; i++) {
+    points[i * 2] = (i / len) * w;
+    points[i * 2 + 1] = cy - data[start + i] * pxPerDiv;
+  }
+  persistenceBuffer.push({ time: now, color: color, points: points, len: len });
+
+  // Prune old entries
+  var cutoff = now - persistenceDuration * 1000;
+  while (persistenceBuffer.length > 0 && persistenceBuffer[0].time < cutoff) {
+    persistenceBuffer.shift();
+  }
+
+  // Draw every point as an individual 2x2 rect — NO path, NO stroke, NO lineTo
+  for (var b = 0; b < persistenceBuffer.length; b++) {
+    var entry = persistenceBuffer[b];
+    if (entry.color !== color) continue;
+    var age = (now - entry.time) / (persistenceDuration * 1000);
+    ctx.globalAlpha = (1.0 - age) * 0.8;
+    ctx.fillStyle = entry.color;
+    var p = entry.points;
+    var n = entry.len;
+    for (var j = 0; j < n; j++) {
+      ctx.fillRect(p[j * 2], p[j * 2 + 1], 2, 2);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function render() {
+  var rect = container.getBoundingClientRect();
+  var w = rect.width, h = rect.height;
+  ctx.fillStyle = '#0D1117';
+  ctx.fillRect(0, 0, w, h);
+  drawGrid(w, h);
+  drawTriggerTimeMarker(w, h);
+  drawTriggerLine(w, h);
+  drawChannelMarkers(w, h);
+
+  var startPos = params['OSC_VIEW_START_POS'] ? params['OSC_VIEW_START_POS'].value : 0;
+  var endPos = params['OSC_VIEW_END_POS'] ? params['OSC_VIEW_END_POS'].value : 0;
+  var ch1Scale = params['GPOS_SCALE_CH1'] ? params['GPOS_SCALE_CH1'].value : 1;
+  var ch2Scale = params['GPOS_SCALE_CH2'] ? params['GPOS_SCALE_CH2'].value : 1;
+  var mathScale = params['GPOS_SCALE_MATH'] ? params['GPOS_SCALE_MATH'].value : 1;
+
+  // Draw waveforms in priority order: non-active first, active on top (default IN1 > IN2)
+  var chOrder = activeChannel === 2 ? [1, 2] : [2, 1];
+  for (var ci = 0; ci < chOrder.length; ci++) {
+    if (chOrder[ci] === 1 && ch1Visible && signalData['ch1']) drawSignal(w, h, signalData['ch1'], startPos, endPos, COLORS.ch1, ch1Scale, 2, ch1YOffset);
+    if (chOrder[ci] === 2 && ch2Visible && signalData['ch2']) drawSignal(w, h, signalData['ch2'], startPos, endPos, COLORS.ch2, ch2Scale, 1.5, ch2YOffset);
+  }
+  if (signalData['output1'] && params['OUTPUT1_SHOW'] && params['OUTPUT1_SHOW'].value) {
+    var outScale = params['GPOS_SCALE_OUTPUT1'] ? params['GPOS_SCALE_OUTPUT1'].value : 1;
+    drawOutputFromTrigger(w, h, signalData['output1'], COLORS.output1, outScale, 1.2);
+  }
+  if (signalData['output2'] && params['OUTPUT2_SHOW'] && params['OUTPUT2_SHOW'].value) {
+    var outScale2 = params['GPOS_SCALE_OUTPUT2'] ? params['GPOS_SCALE_OUTPUT2'].value : 1;
+    drawOutputFromTrigger(w, h, signalData['output2'], COLORS.output2, outScale2, 1.2);
+  }
+  if (mathVisible && signalData['math']) drawSignal(w, h, signalData['math'], startPos, endPos, COLORS.math, mathScale, 1.2);
+
+  requestAnimationFrame(render);
+}
+
+// ─── WebSocket Protocol ──────────────────────────────────────
+function sendParams() {
+  if (!ws || ws.readyState !== 1) return;
+  if (Object.keys(localParams).length === 0) return;
+  // Server handles x1000 and sweep time conversions
+  ws.send(JSON.stringify({ params: localParams }));
+  localParams = {};
+}
+
+function processParameters(newParams) {
+  // Server already normalized x1000 params and sweep time
+  for (var key in newParams) {
+    params[key] = newParams[key];
+  }
+  if (newParams['ADC_RATE']) adcMaxRate = newParams['ADC_RATE'].value;
+  updateUI();
+}
+
+// ─── View State Sync ──────────────────────────────────────────
+var _ignoreViewState = false; // prevent echo loops
+
+function sendViewState(changes) {
+  if (_ignoreViewState) return;
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ viewState: changes }));
+}
+
+function applyViewState(vs) {
+  _ignoreViewState = true;
+  if (vs.ch1YOffset !== undefined) { ch1YOffset = vs.ch1YOffset; $('#ch1-offset-input').val(ch1YOffset.toFixed(2)); }
+  if (vs.ch2YOffset !== undefined) { ch2YOffset = vs.ch2YOffset; $('#ch2-offset-input').val(ch2YOffset.toFixed(2)); }
+  if (vs.activeChannel !== undefined) selectChannel(vs.activeChannel);
+  if (vs.snapEnabled !== undefined) {
+    snapEnabled = vs.snapEnabled;
+    $('#btn-snap').toggleClass('active', snapEnabled).css('opacity', snapEnabled ? '' : '.5');
+  }
+  if (vs.sidebarOpen !== undefined) {
+    if (vs.sidebarOpen) $('.sidebar').addClass('open'); else $('.sidebar').removeClass('open');
+  }
+  _ignoreViewState = false;
+}
+
+function processSignals(newSignals) {
+  // Server already decoded signals to plain number arrays
+  for (var name in newSignals) {
+    signalData[name] = newSignals[name];
+  }
+}
+
+function connect() {
+  document.getElementById('loader-text').textContent = 'Connecting...';
+  var url;
+  if (window.SCOPE_WS_URL) {
+    url = window.SCOPE_WS_URL;
+  } else {
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var base = location.pathname.replace(/\/[^/]*$/, '');
+    url = proto + '//' + location.host + base + '/ws';
+  }
+  console.log('[Scope] Connecting to ' + url);
+
+  ws = new WebSocket(url);
+  ws.onopen = function() {
+    console.log('[Scope] Connected to', url);
+    wsReady = true;
+    document.getElementById('loader-wrapper').classList.add('hidden');
+  };
+  ws.onerror = function(ev) {
+    console.error('[Scope] WebSocket error on', url, ev);
+  };
+  ws.onmessage = function(ev) {
+    try {
+      var msg = JSON.parse(ev.data);
+      if (msg.params) processParameters(msg.params);
+      if (msg.signals) processSignals(msg.signals);
+      if (msg.viewState) applyViewState(msg.viewState);
+    } catch(e) { console.error('[Scope] Parse error:', e); }
+  };
+  ws.onclose = function() {
+    console.log('[Scope] Disconnected, reconnecting...');
+    wsReady = false;
+    ws = null;
+    document.getElementById('loader-text').textContent = 'Reconnecting...';
+    document.getElementById('loader-wrapper').classList.remove('hidden');
+    setTimeout(connect, 1000);
+  };
+  // onerror handler above already logs, onclose will fire after
+}
+
+// ─── UI Updates ──────────────────────────────────────────────
+function selectNearest(sel, val) {
+  var best = 0, bestDiff = Infinity;
+  for (var i = 0; i < sel.options.length; i++) {
+    var d = Math.abs(parseFloat(sel.options[i].value) - val);
+    if (d < bestDiff) { bestDiff = d; best = i; }
+  }
+  sel.selectedIndex = best;
+}
+
+function updateUI() {
+  var p = params;
+  var focused = document.activeElement;
+  // Time scale
+  if (p['OSC_TIME_SCALE']) {
+    var ts = p['OSC_TIME_SCALE'].value;
+    $('#badge-time').text(convertTime(ts) + '/div');
+    $('#time-div').text(convertTime(ts) + '/div');
+  }
+  if (p['OSC_TIME_OFFSET']) {
+    $('#time-offset').text(convertTime(p['OSC_TIME_OFFSET'].value));
+  }
+  // Channel scales
+  if (p['GPOS_SCALE_CH1']) {
+    var v1 = convertVoltage(p['GPOS_SCALE_CH1'].value);
+    $('#badge-ch1').text('IN1  ' + v1 + '/div');
+    $('#ch1-scale').text(v1 + '/div');
+    // Sync dropdown to nearest value
+    var sel1 = document.getElementById('ch1-vdiv-sel');
+    if (sel1 && sel1 !== focused) selectNearest(sel1, p['GPOS_SCALE_CH1'].value);
+  }
+  if (p['GPOS_SCALE_CH2']) {
+    var v2 = convertVoltage(p['GPOS_SCALE_CH2'].value);
+    $('#badge-ch2').text('IN2  ' + v2 + '/div');
+    $('#ch2-scale').text(v2 + '/div');
+    var sel2 = document.getElementById('ch2-vdiv-sel');
+    if (sel2 && sel2 !== focused) selectNearest(sel2, p['GPOS_SCALE_CH2'].value);
+  }
+  // Sample rate
+  if (p['OSC_SAMPL_RATE']) {
+    var rate = adcMaxRate / p['OSC_SAMPL_RATE'].value;
+    var rateStr = rate >= 1e6 ? (rate/1e6).toFixed(1)+' MS/s' : rate >= 1e3 ? (rate/1e3).toFixed(1)+' kS/s' : rate+'S/s';
+    $('#sample-rate').text(rateStr);
+  }
+  // Trigger info
+  if (p['OSC_TRIG_INFO']) {
+    var states = ['STOPPED','AUTO',"TRIG'D",'WAITING'];
+    var classes = ['stopped','','triggered','waiting'];
+    var idx = p['OSC_TRIG_INFO'].value;
+    $('#trig-status').text(states[idx]).attr('class','trig-status ' + classes[idx]);
+  }
+  // Trigger level
+  if (p['OSC_TRIG_LEVEL']) {
+    var tlEl = document.getElementById('trig-level-input');
+    if (tlEl && tlEl !== focused) tlEl.value = parseFloat(p['OSC_TRIG_LEVEL'].value).toFixed(3);
+  }
+  // Time offset
+  if (p['OSC_TIME_OFFSET']) {
+    var toEl = document.getElementById('time-offset-input');
+    if (toEl && toEl !== focused) toEl.value = parseFloat(p['OSC_TIME_OFFSET'].value).toFixed(3);
+  }
+  // Channel visibility
+  if (p['CH1_SHOW']) { ch1Visible = p['CH1_SHOW'].value; $('#btn-ch1 .ch-dot').toggleClass('off', !ch1Visible); }
+  if (p['CH2_SHOW']) { ch2Visible = p['CH2_SHOW'].value; $('#btn-ch2 .ch-dot').toggleClass('off', !ch2Visible); }
+  if (p['MATH_SHOW']) { mathVisible = p['MATH_SHOW'].value; $('#btn-math .ch-dot').toggleClass('off', !mathVisible); }
+  // Run state
+  if (p['OSC_RUN'] !== undefined) {
+    running = p['OSC_RUN'].value;
+    $('#btn-run').toggleClass('active', running);
+    $('#btn-stop').toggleClass('active', !running);
+  }
+  // Output state
+  if (p['OUTPUT1_STATE']) {
+    var on1 = p['OUTPUT1_STATE'].value;
+    $('#out1-state').toggleClass('on', on1).text(on1 ? 'ON' : 'OFF');
+  }
+  if (p['OUTPUT2_STATE']) {
+    var on2 = p['OUTPUT2_STATE'].value;
+    $('#out2-state').toggleClass('on', on2).text(on2 ? 'ON' : 'OFF');
+  }
+  // Show output toggles
+  if (p['OUTPUT1_SHOW']) {
+    var sh1 = p['OUTPUT1_SHOW'].value;
+    $('#out1-show').toggleClass('on', sh1);
+  }
+  if (p['OUTPUT2_SHOW']) {
+    var sh2 = p['OUTPUT2_SHOW'].value;
+    $('#out2-show').toggleClass('on', sh2);
+  }
+  // Show/hide PWM duty cycle rows
+  if (p['SOUR1_FUNC']) $('#sour1-dcyc-row').toggle(parseInt(p['SOUR1_FUNC'].value) === 6);
+  if (p['SOUR2_FUNC']) $('#sour2-dcyc-row').toggle(parseInt(p['SOUR2_FUNC'].value) === 6);
+  // Sweep/burst state toggles
+  if (p['SOUR1_SWEEP_STATE']) {
+    var sw1 = p['SOUR1_SWEEP_STATE'].value;
+    $('#sour1-sweep-state').toggleClass('on', sw1).text(sw1 ? 'ON' : 'OFF');
+    $('#sour1-sweep-group').toggle(!!sw1);
+  }
+  if (p['SOUR2_SWEEP_STATE']) {
+    var sw2 = p['SOUR2_SWEEP_STATE'].value;
+    $('#sour2-sweep-state').toggleClass('on', sw2).text(sw2 ? 'ON' : 'OFF');
+    $('#sour2-sweep-group').toggle(!!sw2);
+  }
+  if (p['SOUR1_BURST_STATE']) {
+    var bu1 = p['SOUR1_BURST_STATE'].value;
+    $('#sour1-burst-state').toggleClass('on', bu1).text(bu1 ? 'ON' : 'OFF');
+    $('#sour1-burst-group').toggle(!!bu1);
+  }
+  if (p['SOUR2_BURST_STATE']) {
+    var bu2 = p['SOUR2_BURST_STATE'].value;
+    $('#sour2-burst-state').toggleClass('on', bu2).text(bu2 ? 'ON' : 'OFF');
+    $('#sour2-burst-group').toggle(!!bu2);
+  }
+  // Sweep infinite toggles
+  if (p['SOUR1_SWEEP_INF']) {
+    var si1 = p['SOUR1_SWEEP_INF'].value;
+    $('#sour1-sweep-inf').toggleClass('on', !!si1);
+    $('#SOUR1_SWEEP_REP').prop('disabled', !!si1);
+  }
+  if (p['SOUR2_SWEEP_INF']) {
+    var si2 = p['SOUR2_SWEEP_INF'].value;
+    $('#sour2-sweep-inf').toggleClass('on', !!si2);
+    $('#SOUR2_SWEEP_REP').prop('disabled', !!si2);
+  }
+  // Generator params — skip updating any input/select that has focus
+  var genFields = [
+    ['SOUR1_FREQ_FIX',p], ['SOUR1_VOLT',p], ['SOUR1_VOLT_OFFS',p], ['SOUR1_FUNC',p],
+    ['SOUR1_DCYC',p], ['SOUR1_PHAS',p],
+    ['SOUR2_FREQ_FIX',p], ['SOUR2_VOLT',p], ['SOUR2_VOLT_OFFS',p], ['SOUR2_FUNC',p],
+    ['SOUR2_DCYC',p], ['SOUR2_PHAS',p],
+    ['SOUR1_SWEEP_FREQ_START',p], ['SOUR1_SWEEP_FREQ_END',p], ['SOUR1_SWEEP_TIME',p],
+    ['SOUR1_SWEEP_DIR',p], ['SOUR1_SWEEP_MODE',p], ['SOUR1_SWEEP_REP',p],
+    ['SOUR1_BURST_COUNT',p], ['SOUR1_BURST_REP',p], ['SOUR1_BURST_DELAY',p],
+    ['SOUR2_SWEEP_FREQ_START',p], ['SOUR2_SWEEP_FREQ_END',p], ['SOUR2_SWEEP_TIME',p],
+    ['SOUR2_SWEEP_DIR',p], ['SOUR2_SWEEP_MODE',p], ['SOUR2_SWEEP_REP',p],
+    ['SOUR2_BURST_COUNT',p], ['SOUR2_BURST_REP',p], ['SOUR2_BURST_DELAY',p]
+  ];
+  for (var gi = 0; gi < genFields.length; gi++) {
+    var fid = genFields[gi][0], el = document.getElementById(fid);
+    if (el && el !== focused && p[fid]) {
+      el.value = p[fid].value;
+    }
+  }
+  // Measurements
+  if (p['OSC_MEAS_VAL1']) $('#m-freq').text(p['OSC_MEAS_VAL1'].value);
+  if (p['OSC_MEAS_VAL2']) $('#m-vpp').text(p['OSC_MEAS_VAL2'].value);
+  if (p['OSC_MEAS_VAL3']) $('#m-vrms').text(p['OSC_MEAS_VAL3'].value);
+  if (p['OSC_MEAS_VAL4']) $('#m-period').text(p['OSC_MEAS_VAL4'].value);
+}
+
+// ─── Event Handlers ──────────────────────────────────────────
+$('#btn-sidebar').click(function() {
+  $('.sidebar').toggleClass('open');
+  resizeCanvas();
+  sendViewState({ sidebarOpen: $('.sidebar').hasClass('open') });
+});
+$('#btn-snap').click(function() {
+  snapEnabled = !snapEnabled;
+  $(this).css('opacity', snapEnabled ? '1' : '.5');
+  if (snapEnabled) $(this).addClass('active'); else $(this).removeClass('active');
+  sendViewState({ snapEnabled: snapEnabled });
+});
+$('#btn-run').click(function() {
+  localParams['OSC_TRIG_SWEEP'] = { value: 0 }; // reset to AUTO
+  localParams['OSC_RUN'] = { value: true };
+  sendParams();
+});
+$('#btn-stop').click(function() {
+  localParams['OSC_RUN'] = { value: false };
+  sendParams();
+});
+$('#btn-persist').click(function() {
+  persistenceEnabled = !persistenceEnabled;
+  $(this).toggleClass('active', persistenceEnabled);
+  if (persistenceEnabled) {
+    $(this).css({'background':'rgba(88,166,255,.15)','border-color':'var(--accent)','color':'var(--accent)'});
+  } else {
+    $(this).css({'background':'','border-color':'','color':''});
+    persistenceBuffer = [];
+  }
+});
+$('#persist-dur').on('change', function() {
+  persistenceDuration = Math.max(1, Math.min(60, parseInt(this.value) || 10));
+  this.value = persistenceDuration;
+});
+
+$('#btn-single').click(function() {
+  localParams['OSC_TRIG_SWEEP'] = { value: 2 }; // single
+  localParams['OSC_RUN'] = { value: true };
+  sendParams();
+});
+$('#btn-auto').click(function() {
+  localParams['OSC_AUTOSCALE'] = { value: true };
+  sendParams();
+});
+
+// Channel select/toggle: click unselected → select; click selected → toggle on/off
+function selectChannel(ch) {
+  activeChannel = ch;
+  $('.ch-btn').removeClass('active');
+  $('#btn-ch' + ch).addClass('active');
+  $('#badge-ch1').toggleClass('active-ch', ch === 1);
+  $('#badge-ch2').toggleClass('active-ch', ch === 2);
+  sendViewState({ activeChannel: ch });
+}
+$('#btn-ch1').click(function() {
+  if (activeChannel === 1) {
+    ch1Visible = !ch1Visible;
+    localParams['CH1_SHOW'] = { value: ch1Visible };
+    sendParams();
+    $(this).find('.ch-dot').toggleClass('off', !ch1Visible);
+  } else {
+    selectChannel(1);
+  }
+});
+$('#btn-ch2').click(function() {
+  if (activeChannel === 2) {
+    ch2Visible = !ch2Visible;
+    localParams['CH2_SHOW'] = { value: ch2Visible };
+    sendParams();
+    $(this).find('.ch-dot').toggleClass('off', !ch2Visible);
+  } else {
+    selectChannel(2);
+  }
+});
+
+// Output toggles
+$('#out1-state').click(function() {
+  var newState = !$(this).hasClass('on');
+  localParams['OUTPUT1_STATE'] = { value: newState };
+  sendParams();
+});
+$('#out2-state').click(function() {
+  var newState = !$(this).hasClass('on');
+  localParams['OUTPUT2_STATE'] = { value: newState };
+  sendParams();
+});
+// Sync generators button (re-locks phase of both outputs)
+$('#sync-gen, #sync-gen2').click(function() {
+  localParams['SYNC_GEN'] = { value: true };
+  sendParams();
+});
+
+// Show output on graph toggles
+$('#out1-show').click(function() {
+  var newState = !$(this).hasClass('on');
+  localParams['OUTPUT1_SHOW'] = { value: newState };
+  sendParams();
+});
+$('#out2-show').click(function() {
+  var newState = !$(this).hasClass('on');
+  localParams['OUTPUT2_SHOW'] = { value: newState };
+  sendParams();
+});
+
+// Toggle groups for trigger controls
+$('#tg-sweep').on('click', '.toggle-opt', function() {
+  $('#tg-sweep .toggle-opt').removeClass('active');
+  $(this).addClass('active');
+  localParams['OSC_TRIG_SWEEP'] = { value: parseInt($(this).data('val')) };
+  sendParams();
+});
+$('#tg-edge').on('click', '.toggle-opt', function() {
+  $('#tg-edge .toggle-opt').removeClass('active');
+  $(this).addClass('active');
+  localParams['OSC_TRIG_SLOPE'] = { value: parseInt($(this).data('val')) };
+  sendParams();
+});
+$('#tg-coupling1').on('click', '.toggle-opt', function() {
+  $('#tg-coupling1 .toggle-opt').removeClass('active');
+  $(this).addClass('active');
+  localParams['OSC_CH1_IN_AC_DC'] = { value: parseInt($(this).data('val')) };
+  sendParams();
+});
+$('#tg-gain1').on('click', '.toggle-opt', function() {
+  $('#tg-gain1 .toggle-opt').removeClass('active');
+  $(this).addClass('active');
+  localParams['OSC_CH1_IN_GAIN'] = { value: parseInt($(this).data('val')) };
+  sendParams();
+});
+// CH2 controls
+$('#tg-coupling2').on('click', '.toggle-opt', function() {
+  $('#tg-coupling2 .toggle-opt').removeClass('active');
+  $(this).addClass('active');
+  localParams['OSC_CH2_IN_AC_DC'] = { value: parseInt($(this).data('val')) };
+  sendParams();
+});
+$('#tg-gain2').on('click', '.toggle-opt', function() {
+  $('#tg-gain2 .toggle-opt').removeClass('active');
+  $(this).addClass('active');
+  localParams['OSC_CH2_IN_GAIN'] = { value: parseInt($(this).data('val')) };
+  sendParams();
+});
+$('#OSC_CH2_PROBE').on('change', function() {
+  localParams['OSC_CH2_PROBE'] = { value: parseInt(this.value) };
+  sendParams();
+});
+// Voltage scale dropdowns
+$('.vscale-select').on('change', function() {
+  var paramName = $(this).data('param');
+  localParams[paramName] = { value: parseFloat(this.value) };
+  sendParams();
+});
+
+// Generator input changes — submit on Enter key or on blur
+function parseGenInput(el) {
+  return $(el).data('type') === 'int' ? parseInt(el.value) : parseFloat(el.value);
+}
+$('.gen-input').on('keydown', function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    localParams[this.id] = { value: parseGenInput(this) };
+    sendParams();
+    this.blur();
+  }
+}).on('blur', function() {
+  localParams[this.id] = { value: parseGenInput(this) };
+  sendParams();
+});
+// Waveform type selects
+$('#SOUR1_FUNC, #SOUR2_FUNC').on('change', function() {
+  localParams[this.id] = { value: parseInt(this.value) };
+  sendParams();
+  // Show/hide duty cycle row for PWM (value 6)
+  var isPwm = parseInt(this.value) === 6;
+  var row = this.id === 'SOUR1_FUNC' ? '#sour1-dcyc-row' : '#sour2-dcyc-row';
+  $(row).toggle(isPwm);
+});
+
+// Sweep/burst toggle buttons
+$('.sweep-toggle').click(function() {
+  var id = this.id; // e.g. sour1-sweep-state
+  var ch = id.indexOf('sour1') >= 0 ? '1' : '2';
+  var newState = !$(this).hasClass('on');
+  $(this).toggleClass('on', newState).text(newState ? 'ON' : 'OFF');
+  $('#sour' + ch + '-sweep-group').toggle(newState);
+  localParams['SOUR' + ch + '_SWEEP_STATE'] = { value: newState };
+  sendParams();
+});
+$('.burst-toggle').click(function() {
+  var id = this.id;
+  var ch = id.indexOf('sour1') >= 0 ? '1' : '2';
+  var newState = !$(this).hasClass('on');
+  $(this).toggleClass('on', newState).text(newState ? 'ON' : 'OFF');
+  $('#sour' + ch + '-burst-group').toggle(newState);
+  localParams['SOUR' + ch + '_BURST_STATE'] = { value: newState };
+  sendParams();
+});
+// Sweep/burst select dropdowns
+$('.sweep-burst-select').on('change', function() {
+  localParams[this.id] = { value: parseInt(this.value) };
+  sendParams();
+});
+// Sweep infinite toggle
+$('.sweep-inf-toggle').click(function() {
+  var ch = this.id.indexOf('sour1') >= 0 ? '1' : '2';
+  var newState = !$(this).hasClass('on');
+  $(this).toggleClass('on', newState);
+  localParams['SOUR' + ch + '_SWEEP_INF'] = { value: newState };
+  // Disable repeat input when infinite
+  $('#SOUR' + ch + '_SWEEP_REP').prop('disabled', newState);
+  sendParams();
+});
+
+// Probe change
+$('#OSC_CH1_PROBE').on('change', function() {
+  localParams['OSC_CH1_PROBE'] = { value: parseInt(this.value) };
+  sendParams();
+});
+$('#OSC_TRIG_SOURCE').on('change', function() {
+  localParams['OSC_TRIG_SOURCE'] = { value: parseInt(this.value) };
+  sendParams();
+});
+
+// Helper: step through a value array
+function stepValue(steps, current, direction) {
+  var idx = 0;
+  for (var i = 0; i < steps.length; i++) {
+    if (Math.abs(steps[i] - current) < Math.abs(steps[idx] - current)) idx = i;
+  }
+  if (direction > 0 && idx < steps.length - 1) idx++;
+  else if (direction < 0 && idx > 0) idx--;
+  return steps[idx];
+}
+
+var timeSteps = [0.000005,0.00001,0.00005,0.0001,0.0002,0.0005,0.001,0.002,0.005,0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10,20,50,100,200,500,1000];
+
+// Scroll on canvas: normal = time scale, shift = V/div for active channel
+container.addEventListener('wheel', function(e) {
+  e.preventDefault();
+  var dir = e.deltaY > 0 ? 1 : -1;
+  if (e.ctrlKey) {
+    // Ctrl+scroll: adjust time offset (1 division per step)
+    var timeScale = params['OSC_TIME_SCALE'] ? params['OSC_TIME_SCALE'].value : 1;
+    var curOffset = params['OSC_TIME_OFFSET'] ? params['OSC_TIME_OFFSET'].value : 0;
+    var newOffset = clampTimeOffset(curOffset + dir * timeScale / 20);
+    params['OSC_TIME_OFFSET'] = { value: newOffset };
+    localParams['OSC_TIME_OFFSET'] = { value: newOffset };
+    var toEl = document.getElementById('time-offset-input');
+    if (toEl) toEl.value = newOffset.toFixed(3);
+    sendParams();
+  } else if (e.shiftKey) {
+    // V/div for active channel
+    var scaleKey = activeChannel === 1 ? 'GPOS_SCALE_CH1' : 'GPOS_SCALE_CH2';
+    var curV = params[scaleKey] ? params[scaleKey].value : 1;
+    localParams[scaleKey] = { value: stepValue(V_STEPS, curV, dir) };
+    sendParams();
+  } else {
+    if (!params['OSC_TIME_SCALE']) return;
+    var newTs = stepValue(timeSteps, params['OSC_TIME_SCALE'].value, dir);
+    localParams['OSC_TIME_SCALE'] = { value: newTs };
+    // Re-clamp offset for new time scale
+    var curOff = params['OSC_TIME_OFFSET'] ? params['OSC_TIME_OFFSET'].value : 0;
+    var maxOff = (GRID_X / 2) * newTs;
+    var clampedOff = Math.max(-maxOff, Math.min(maxOff, curOff));
+    if (clampedOff !== curOff) {
+      params['OSC_TIME_OFFSET'] = { value: clampedOff };
+      localParams['OSC_TIME_OFFSET'] = { value: clampedOff };
+      var toEl = document.getElementById('time-offset-input');
+      if (toEl) toEl.value = clampedOff.toFixed(3);
+    }
+    sendParams();
+  }
+}, { passive: false });
+
+// Scroll on scale badges to change that channel's V/div
+document.getElementById('badge-ch1').addEventListener('wheel', function(e) {
+  e.preventDefault(); e.stopPropagation();
+  activeChannel = 1;
+  var curV = params['GPOS_SCALE_CH1'] ? params['GPOS_SCALE_CH1'].value : 1;
+  localParams['GPOS_SCALE_CH1'] = { value: stepValue(V_STEPS, curV, e.deltaY > 0 ? 1 : -1) };
+  sendParams();
+}, { passive: false });
+document.getElementById('badge-ch2').addEventListener('wheel', function(e) {
+  e.preventDefault(); e.stopPropagation();
+  activeChannel = 2;
+  var curV = params['GPOS_SCALE_CH2'] ? params['GPOS_SCALE_CH2'].value : 1;
+  localParams['GPOS_SCALE_CH2'] = { value: stepValue(V_STEPS, curV, e.deltaY > 0 ? 1 : -1) };
+  sendParams();
+}, { passive: false });
+// Click badge to set active channel
+document.getElementById('badge-ch1').addEventListener('click', function() { selectChannel(1); });
+document.getElementById('badge-ch2').addEventListener('click', function() { selectChannel(2); });
+// Scroll on time badge to change time scale
+document.getElementById('badge-time').addEventListener('wheel', function(e) {
+  e.preventDefault(); e.stopPropagation();
+  if (!params['OSC_TIME_SCALE']) return;
+  var newTs = stepValue(timeSteps, params['OSC_TIME_SCALE'].value, e.deltaY > 0 ? 1 : -1);
+  localParams['OSC_TIME_SCALE'] = { value: newTs };
+  var curOff = params['OSC_TIME_OFFSET'] ? params['OSC_TIME_OFFSET'].value : 0;
+  var maxOff = (GRID_X / 2) * newTs;
+  var clampedOff = Math.max(-maxOff, Math.min(maxOff, curOff));
+  if (clampedOff !== curOff) {
+    params['OSC_TIME_OFFSET'] = { value: clampedOff };
+    localParams['OSC_TIME_OFFSET'] = { value: clampedOff };
+    var toEl = document.getElementById('time-offset-input');
+    if (toEl) toEl.value = clampedOff.toFixed(3);
+  }
+  sendParams();
+}, { passive: false });
+
+// Trigger level input — Enter/blur to submit
+$('#trig-level-input').on('keydown', function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    localParams['OSC_TRIG_LEVEL'] = { value: parseFloat(this.value) };
+    sendParams();
+    this.blur();
+  }
+}).on('blur', function() {
+  localParams['OSC_TRIG_LEVEL'] = { value: parseFloat(this.value) };
+  sendParams();
+});
+
+// Time offset input — Enter/blur to submit
+$('#time-offset-input').on('keydown', function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    var v = clampTimeOffset(parseFloat(this.value) || 0);
+    this.value = v.toFixed(3);
+    params['OSC_TIME_OFFSET'] = { value: v };
+    localParams['OSC_TIME_OFFSET'] = { value: v };
+    sendParams();
+    this.blur();
+  }
+}).on('blur', function() {
+  var v = clampTimeOffset(parseFloat(this.value) || 0);
+  this.value = v.toFixed(3);
+  params['OSC_TIME_OFFSET'] = { value: v };
+  localParams['OSC_TIME_OFFSET'] = { value: v };
+  sendParams();
+});
+
+// Channel offset inputs — Enter/blur to update
+$('#ch1-offset-input').on('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); ch1YOffset = parseFloat(this.value) || 0; sendViewState({ ch1YOffset: ch1YOffset }); this.blur(); }
+}).on('blur', function() { ch1YOffset = parseFloat(this.value) || 0; sendViewState({ ch1YOffset: ch1YOffset }); });
+$('#ch2-offset-input').on('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); ch2YOffset = parseFloat(this.value) || 0; sendViewState({ ch2YOffset: ch2YOffset }); this.blur(); }
+}).on('blur', function() { ch2YOffset = parseFloat(this.value) || 0; sendViewState({ ch2YOffset: ch2YOffset }); });
+
+// Snap helper: snap pixel position to nearest grid line if within threshold
+function snapToGrid(px, origin, pxPerDiv, numDivs) {
+  if (!snapEnabled) return px;
+  for (var i = 0; i <= numDivs; i++) {
+    var gridPx = origin + (i - numDivs / 2) * pxPerDiv;
+    if (Math.abs(px - gridPx) <= 5) return gridPx;
+  }
+  return px;
+}
+
+// Drag state
+var trigDragging = false;
+var timeDragging = false;
+var wfDragging = false, wfDragChannel = 0, wfDragStartY = 0, wfDragStartOffset = 0;
+
+function getTriggerX() {
+  var rect = container.getBoundingClientRect();
+  var w = rect.width;
+  var timeOffset = params['OSC_TIME_OFFSET'] ? params['OSC_TIME_OFFSET'].value : 0;
+  var timeScale = params['OSC_TIME_SCALE'] ? params['OSC_TIME_SCALE'].value : 1;
+  if (!timeScale) return w / 2;
+  var pxPerDivX = w / GRID_X;
+  return w / 2 - (timeOffset / timeScale) * pxPerDivX;
+}
+
+function getTriggerY() {
+  var rect = container.getBoundingClientRect();
+  var h = rect.height;
+  var trigLevel = params['OSC_TRIG_LEVEL'] ? params['OSC_TRIG_LEVEL'].value : 0;
+  var chScale = getTrigSourceScale();
+  var chOffset = getTrigSourceOffset();
+  var cy = h / 2;
+  var pxPerDiv = h / GRID_Y;
+  return cy - chOffset * pxPerDiv - (trigLevel / chScale) * pxPerDiv;
+}
+
+// Detect which right-edge handle is being clicked (returns 0=none, 1=ch1, 2=ch2)
+function hitTestRightHandle(mx, my, w) {
+  var pxPerDiv = container.getBoundingClientRect().height / GRID_Y;
+  var cy = container.getBoundingClientRect().height / 2;
+  if (mx < w - HANDLE_W - 4) return 0; // not near right edge
+  var y1 = cy - ch1YOffset * pxPerDiv;
+  var y2 = cy - ch2YOffset * pxPerDiv;
+  var d1 = ch1Visible ? Math.abs(my - y1) : Infinity;
+  var d2 = ch2Visible ? Math.abs(my - y2) : Infinity;
+  // If both within range, prioritize: active channel first, then IN1 > IN2
+  var threshold = HANDLE_H + 4;
+  if (d1 <= threshold && d2 <= threshold) {
+    // Both hit — prefer active, then IN1
+    if (activeChannel === 2 && d2 <= threshold) return 2;
+    return 1;
+  }
+  if (d1 <= threshold) return 1;
+  if (d2 <= threshold) return 2;
+  return 0;
+}
+
+function startWfDrag(ch, my) {
+  wfDragging = true;
+  wfDragChannel = ch;
+  wfDragStartY = my;
+  wfDragStartOffset = ch === 1 ? ch1YOffset : ch2YOffset;
+}
+
+container.addEventListener('mousedown', function(e) {
+  var rect = container.getBoundingClientRect();
+  var mx = e.clientX - rect.left;
+  var my = e.clientY - rect.top;
+  var w = rect.width;
+  var trigY = getTriggerY();
+  var trigX = getTriggerX();
+
+  // Priority 1: right-edge channel handles (any channel, regardless of selection)
+  var hitCh = hitTestRightHandle(mx, my, w);
+  if (hitCh > 0) {
+    startWfDrag(hitCh, my);
+    e.preventDefault();
+    container.style.cursor = 'grabbing';
+    return;
+  }
+
+  // Priority 2: trigger time marker (top edge near trigX)
+  if (my <= 14 && Math.abs(mx - trigX) <= 12) {
+    timeDragging = true;
+    e.preventDefault();
+    container.style.cursor = 'col-resize';
+    return;
+  }
+
+  // Priority 3: trigger level drag (handle only)
+  if (mx <= HANDLE_W + 4 && Math.abs(my - trigY) <= HANDLE_H + 4) {
+    trigDragging = true;
+    e.preventDefault();
+    container.style.cursor = 'row-resize';
+    return;
+  }
+
+  // Priority 4: waveform offset drag for active channel (anywhere else, only if visible)
+  var activeVisible = (activeChannel === 1 && ch1Visible) || (activeChannel === 2 && ch2Visible);
+  if (!activeVisible) return;
+  startWfDrag(activeChannel, my);
+  e.preventDefault();
+  container.style.cursor = 'grabbing';
+});
+
+// Show cursor hints on hover
+container.addEventListener('mousemove', function(e) {
+  if (trigDragging || wfDragging || timeDragging) return;
+  var rect = container.getBoundingClientRect();
+  var mx = e.clientX - rect.left;
+  var my = e.clientY - rect.top;
+  var w = rect.width;
+  var trigY = getTriggerY();
+  var trigX = getTriggerX();
+  if (hitTestRightHandle(mx, my, w) > 0) {
+    container.style.cursor = 'grab';
+  } else if (my <= 14 && Math.abs(mx - trigX) <= 12) {
+    container.style.cursor = 'col-resize';
+  } else if (mx <= HANDLE_W + 4 && Math.abs(my - trigY) <= HANDLE_H + 4) {
+    container.style.cursor = 'row-resize';
+  } else {
+    var activeVis = (activeChannel === 1 && ch1Visible) || (activeChannel === 2 && ch2Visible);
+    container.style.cursor = activeVis ? 'grab' : 'default';
+  }
+});
+
+window.addEventListener('mousemove', function(e) {
+  var rect = container.getBoundingClientRect();
+  var mx = e.clientX - rect.left;
+  var my = e.clientY - rect.top;
+  var w = rect.width;
+  var h = rect.height;
+  var cy = h / 2;
+  var pxPerDiv = h / GRID_Y;
+
+  if (timeDragging) {
+    var pxPerDivX = w / GRID_X;
+    var timeScale = params['OSC_TIME_SCALE'] ? params['OSC_TIME_SCALE'].value : 1;
+    var snappedX = snapToGrid(mx, w / 2, pxPerDivX, GRID_X);
+    var offsetDivs = (w / 2 - snappedX) / pxPerDivX;
+    var newOffset = offsetDivs * timeScale;
+    params['OSC_TIME_OFFSET'] = { value: newOffset };
+    localParams['OSC_TIME_OFFSET'] = { value: newOffset };
+    document.getElementById('time-offset-input').value = newOffset.toFixed(3);
+    sendParams();
+    return;
+  }
+
+  if (trigDragging) {
+    var chScale = getTrigSourceScale();
+    var chOffset = getTrigSourceOffset();
+    var snappedY = snapToGrid(my, cy, pxPerDiv, GRID_Y);
+    var divs = (cy - snappedY) / pxPerDiv - chOffset;
+    var volts = divs * chScale;
+    params['OSC_TRIG_LEVEL'] = { value: volts };
+    document.getElementById('trig-level-input').value = volts.toFixed(3);
+    localParams['OSC_TRIG_LEVEL'] = { value: volts };
+    sendParams();
+    return;
+  }
+
+  if (wfDragging) {
+    var deltaPx = wfDragStartY - my;
+    var deltaDivs = deltaPx / pxPerDiv;
+    var newOffset = wfDragStartOffset + deltaDivs;
+    if (snapEnabled) {
+      // Snap to nearest integer division
+      var handleY = cy - newOffset * pxPerDiv;
+      var snappedHandleY = snapToGrid(handleY, cy, pxPerDiv, GRID_Y);
+      newOffset = (cy - snappedHandleY) / pxPerDiv;
+    }
+    if (wfDragChannel === 1) {
+      ch1YOffset = newOffset;
+      document.getElementById('ch1-offset-input').value = newOffset.toFixed(2);
+    } else {
+      ch2YOffset = newOffset;
+      document.getElementById('ch2-offset-input').value = newOffset.toFixed(2);
+    }
+  }
+});
+
+window.addEventListener('mouseup', function() {
+  if (trigDragging) { trigDragging = false; container.style.cursor = ''; }
+  if (timeDragging) { timeDragging = false; container.style.cursor = ''; }
+  if (wfDragging) {
+    sendViewState({ ch1YOffset: ch1YOffset, ch2YOffset: ch2YOffset });
+    wfDragging = false; container.style.cursor = '';
+  }
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+  if (ws) ws.close();
+  $.ajax({ url: STOP_URL, type: 'GET', async: false });
+});
+
+// ─── GV postMessage Support (screenshot + remote commands) ───
+// Supported commands:
+//   { type: 'mgmt_capture_request' }          — screenshot
+//   { type: 'set_param', key: '...', value: N } — set any RP parameter
+//   { type: 'set_params', params: { key: {value: N}, ... } } — set multiple params
+//   { type: 'set_view', ch1YOffset, ch2YOffset, activeChannel, snapEnabled, sidebarOpen }
+window.addEventListener('message', function(e) {
+  var msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+  if (!msg || !msg.type) return;
+  if (msg.type === 'mgmt_capture_request') {
+    render();
+    var dataUrl = canvas.toDataURL('image/png');
+    window.parent.postMessage({ type: 'mgmt_canvas_capture', _reqId: msg._reqId, data: dataUrl }, '*');
+  }
+  if (msg.type === 'set_param') {
+    console.log('[Scope postMessage] set_param:', msg.key, msg.value, 'ws:', ws ? ws.readyState : 'null');
+    localParams[msg.key] = { value: msg.value };
+    sendParams();
+  }
+  if (msg.type === 'set_params') {
+    for (var k in msg.params) localParams[k] = msg.params[k];
+    sendParams();
+  }
+  if (msg.type === 'set_view') {
+    applyViewState(msg);
+    sendViewState(msg);
+  }
+});
+
+// ─── Start ───────────────────────────────────────────────────
+render();
+connect();
+
+})();
+</script>
+</body>
+</html>

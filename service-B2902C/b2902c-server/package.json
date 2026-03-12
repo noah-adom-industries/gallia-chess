@@ -1,0 +1,11 @@
+{
+  "name": "b2902c-server",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Keysight B2902C SMU control server with SCPI over LAN",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {}
+}

@@ -1,0 +1,9 @@
+{
+  "name": "b2902c-server",
+  "description": "Keysight B2902C SMU control server with SCPI over LAN",
+  "port": 8400,
+  "health": "http",
+  "start": "node server.js",
+  "cwd": ".",
+  "log": "/tmp/b2902c-server.log"
+}

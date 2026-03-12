@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0d1117; font-family: 'SF Mono', 'Fira Code', monospace; }
+
+  .dashboard {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr 1fr;
+    width: 100%; height: 100%;
+    gap: 2px;
+    background: #21262d;
+  }
+
+  .header {
+    grid-column: 1 / -1;
+    background: #161b22;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #30363d;
+  }
+  .header h1 { color: #e6edf3; font-size: 14px; font-weight: 600; letter-spacing: 0.5px; }
+  .header .status { display: flex; gap: 16px; }
+  .header .status span { color: #8b949e; font-size: 11px; display: flex; align-items: center; gap: 5px; }
+  .header .status .dot { width: 6px; height: 6px; border-radius: 50%; background: #3fb950; display: inline-block; }
+
+  .panel {
+    position: relative;
+    background: #0d1117;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel.wide { grid-column: 1 / -1; }
+
+  .panel-header {
+    background: #161b22;
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #30363d;
+    flex-shrink: 0;
+  }
+  .panel-header .label { color: #e6edf3; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; }
+  .panel-header .badge { font-size: 9px; padding: 2px 8px; border-radius: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .badge-scope { background: #f4724520; color: #f47245; border: 1px solid #f4724540; }
+  .badge-smu   { background: #58a6ff20; color: #58a6ff; border: 1px solid #58a6ff40; }
+  .badge-daq   { background: #3fb95020; color: #3fb950; border: 1px solid #3fb95040; }
+
+  .panel iframe {
+    width: 100%;
+    flex: 1;
+    border: none;
+    background: #0d1117;
+  }
+</style>
+</head>
+<body>
+<div class="dashboard">
+  <div class="header">
+    <h1>EQUIPMENT DASHBOARD</h1>
+    <div class="status">
+      <span><span class="dot"></span> Red Pitaya</span>
+      <span><span class="dot"></span> B2902C</span>
+      <span><span class="dot"></span> DAQ970A</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="label">Red Pitaya — Oscilloscope</span>
+      <span class="badge badge-scope">SCOPE</span>
+    </div>
+    <iframe src="rp/"></iframe>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="label">Keysight B2902C — Source Measure Unit</span>
+      <span class="badge badge-smu">SMU</span>
+    </div>
+    <iframe src="smu/"></iframe>
+  </div>
+
+  <div class="panel wide">
+    <div class="panel-header">
+      <span class="label">Keysight DAQ970A — Data Acquisition</span>
+      <span class="badge badge-daq">DAQ</span>
+    </div>
+    <iframe src="daq/"></iframe>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>B2902C SMU Control</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --text2: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922;
+    --orange: #db6d28;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 13px; overflow-x: hidden; }
+
+  .header { background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 8px 16px; display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 15px; font-weight: 600; }
+  .header .identity { color: var(--text2); font-size: 11px; font-family: monospace; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
+  .status-dot.connected { background: var(--green); }
+
+  .toolbar { background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 6px 16px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  .main { display: grid; grid-template-columns: 1fr 1fr; gap: 0; height: calc(100vh - 86px - 140px); }
+  .channel-panel { border-right: 1px solid var(--border); overflow-y: auto; padding: 12px; }
+  .channel-panel:last-child { border-right: none; }
+
+  .btn { background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    transition: border-color 0.15s; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: #1f6feb; border-color: #1f6feb; }
+  .btn.primary:hover { background: #388bfd; }
+  .btn.danger { background: #da3633; border-color: #da3633; }
+  .btn.danger:hover { background: #f85149; }
+  .btn.success { background: #238636; border-color: #238636; }
+  .btn.success:hover { background: #2ea043; }
+  .btn.sm { padding: 2px 8px; font-size: 11px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .card { background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .card h3 { font-size: 12px; color: var(--text2); text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 8px; }
+
+  .measurement { font-size: 28px; font-weight: 700; font-family: 'SF Mono', 'Consolas', monospace;
+    letter-spacing: -0.5px; }
+  .measurement.voltage { color: var(--accent); }
+  .measurement.current { color: var(--green); }
+  .measurement.resistance { color: var(--orange); }
+  .measurement .unit { font-size: 14px; color: var(--text2); font-weight: 400; margin-left: 4px; }
+
+  .field { margin-bottom: 8px; }
+  .field label { display: block; font-size: 11px; color: var(--text2); margin-bottom: 3px; }
+  .field input, .field select { background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px;
+    font-family: monospace; width: 100%; }
+  .field input:focus, .field select:focus { border-color: var(--accent); outline: none; }
+
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  .row .field { flex: 1; }
+
+  .output-badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .output-badge.on { background: rgba(63, 185, 80, 0.2); color: var(--green); }
+  .output-badge.off { background: rgba(139, 148, 158, 0.15); color: var(--text2); }
+
+  .ch-title { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .ch-title h2 { font-size: 16px; font-weight: 600; }
+
+  .sweep-chart { width: 100%; height: 200px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; position: relative; }
+  .sweep-chart canvas { width: 100%; height: 100%; }
+
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+  .tab { padding: 6px 14px; cursor: pointer; color: var(--text2); border-bottom: 2px solid transparent;
+    font-size: 12px; }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .terminal { background: #000; border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto; }
+  .terminal .cmd { color: var(--accent); }
+  .terminal .resp { color: var(--green); }
+  .terminal .err { color: var(--red); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .sweep-datasets { margin-top: 8px; max-height: 180px; overflow-y: auto; }
+  .sweep-dataset { display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 4px; margin-bottom: 4px;
+    font-size: 11px; font-family: monospace; }
+  .sweep-dataset .swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .sweep-dataset label { flex: 1; cursor: pointer; display: flex; align-items: center; gap: 6px;
+    color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .sweep-dataset input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+  .sweep-dataset .meta { color: var(--text2); }
+  .sweep-dataset .actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .sweep-dataset .actions button { background: none; border: none; color: var(--text2);
+    cursor: pointer; font-size: 11px; padding: 2px 4px; border-radius: 3px; }
+  .sweep-dataset .actions button:hover { background: var(--border); color: var(--text); }
+  .sweep-toolbar { display: flex; gap: 6px; margin-top: 6px; }
+
+  /* Toast notifications */
+  .toast-container { position: fixed; top: 12px; right: 12px; z-index: 9999; display: flex; flex-direction: column; gap: 6px; }
+  .toast { padding: 8px 14px; border-radius: 6px; font-size: 12px; animation: toastIn 0.2s ease-out;
+    max-width: 350px; word-break: break-word; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+  .toast.error { background: #3d1214; border: 1px solid var(--red); color: var(--red); }
+  .toast.success { background: #0d2818; border: 1px solid var(--green); color: var(--green); }
+  .toast.info { background: #0c2d6b; border: 1px solid var(--accent); color: var(--accent); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+  .bottom-panel { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface);
+    border-top: 1px solid var(--border); padding: 8px 16px; z-index: 100; }
+
+  @media (max-width: 700px) {
+    .main { grid-template-columns: 1fr; }
+    .channel-panel { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<div class="toast-container" id="toasts"></div>
+
+<div class="header">
+  <div class="status-dot" id="statusDot"></div>
+  <h1>B2902C SMU</h1>
+  <span class="identity" id="identity">Not connected</span>
+  <div style="flex:1"></div>
+  <button class="btn primary" id="btnConnect" onclick="toggleConnection()">Connect</button>
+  <button class="btn danger" onclick="allOff()">ALL OFF</button>
+</div>
+
+<div class="toolbar">
+  <button class="btn sm" onclick="resetSMU()">Reset (*RST)</button>
+  <button class="btn sm" onclick="clearSMU()">Clear (*CLS)</button>
+  <button class="btn sm" onclick="checkErrors()">Check Errors</button>
+  <span style="flex:1"></span>
+  <span style="color:var(--text2);font-size:11px" id="pollStatus">Polling: OFF</span>
+</div>
+
+<div class="main">
+  <!-- Channel 1 -->
+  <div class="channel-panel" id="ch1Panel">
+    <div class="ch-title">
+      <h2>Channel 1</h2>
+      <span class="output-badge off" id="ch1OutputBadge">OFF</span>
+      <div style="flex:1"></div>
+      <button class="btn success sm" onclick="outputOn(1)">ON</button>
+      <button class="btn danger sm" onclick="outputOff(1)">OFF</button>
+    </div>
+
+    <div class="card">
+      <h3>Live Measurements</h3>
+      <div class="grid-2">
+        <div><div class="measurement voltage" id="ch1MeasV">-.--- <span class="unit">V</span></div></div>
+        <div><div class="measurement current" id="ch1MeasI">-.--- <span class="unit">A</span></div></div>
+      </div>
+      <div style="margin-top:4px">
+        <div class="measurement resistance" style="font-size:18px" id="ch1MeasR">-.--- <span class="unit">&Omega;</span></div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('ch1','source')">Source</div>
+      <div class="tab" onclick="showTab('ch1','compliance')">Compliance</div>
+      <div class="tab" onclick="showTab('ch1','sense')">Sense</div>
+      <div class="tab" onclick="showTab('ch1','sweep')">Sweep</div>
+    </div>
+
+    <div class="tab-content active" id="ch1-source">
+      <div class="card">
+        <div class="row">
+          <div class="field">
+            <label>Source Function</label>
+            <select id="ch1SrcFunc" onchange="setSrcFunc(1)">
+              <option value="VOLT">Voltage (V)</option>
+              <option value="CURR">Current (A)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Source Range</label>
+            <select id="ch1SrcRange" onchange="setSrcRange(1)">
+              <option value="AUTO">Auto</option>
+              <option value="0.2">200 mV / 200 nA</option>
+              <option value="2">2 V / 2 uA</option>
+              <option value="20">20 V / 20 uA</option>
+              <option value="200">200 V / 200 mA</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="field">
+            <label>Source Level</label>
+            <input type="number" id="ch1SrcLevel" step="any" value="0" />
+          </div>
+          <div class="field" style="flex:0 0 auto">
+            <label>&nbsp;</label>
+            <button class="btn primary" onclick="applySource(1)">Apply</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="ch1-compliance">
+      <div class="card">
+        <div class="row">
+          <div class="field"><label>Voltage Compliance (V)</label><input type="number" id="ch1ComplV" step="any" value="21"/></div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn" onclick="setCompliance(1,'voltage')">Set</button></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="field"><label>Current Compliance (A)</label><input type="number" id="ch1ComplI" step="any" value="0.1"/></div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn" onclick="setCompliance(1,'current')">Set</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="ch1-sense">
+      <div class="card">
+        <div class="row">
+          <div class="field"><label>Sense Function</label>
+            <select id="ch1SenseFunc"><option value="VOLT">Voltage</option><option value="CURR">Current</option><option value="RES">Resistance</option></select>
+          </div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn" onclick="setSenseFunc(1)">Set</button></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="field"><label>NPLC (0.01 - 10)</label><input type="number" id="ch1NPLC" step="any" value="1"/></div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn" onclick="setNPLC(1)">Set</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="ch1-sweep">
+      <div class="card">
+        <h3>Primary Sweep (Ch1)</h3>
+        <div class="row">
+          <div class="field"><label>Sweep Type</label>
+            <select id="ch1SwType" onchange="updateSwUnits(1)"><option value="voltage">Voltage</option><option value="current">Current</option></select>
+          </div>
+          <div class="field"><label id="ch1SwStartLabel">Start (V)</label><input type="number" id="ch1SwStart" value="0" step="any"/></div>
+          <div class="field"><label id="ch1SwStopLabel">Stop (V)</label><input type="number" id="ch1SwStop" value="5" step="any"/></div>
+          <div class="field"><label>Points</label><input type="number" id="ch1SwPts" value="101" min="2"/></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="field"><label id="ch1SwComplLabel">Current compliance (A)</label><input type="number" id="ch1SwCompl" value="0.1" step="any"/></div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn primary" onclick="runSingleSweep(1)">Run Sweep</button></div>
+        </div>
+        <div class="card" style="margin-top:8px;border:1px dashed var(--accent)">
+          <h3>Linked Sweep (Step Ch2 while sweeping Ch1)</h3>
+          <div class="row">
+            <div class="field"><label>Step Type</label>
+              <select id="ch1LinkType" onchange="updateLinkComplLabel(1)"><option value="voltage">Voltage</option><option value="current">Current</option></select>
+            </div>
+            <div class="field"><label id="ch1LinkStartLabel">Start (V)</label><input type="number" id="ch1LinkStart" value="0" step="any"/></div>
+            <div class="field"><label id="ch1LinkStopLabel">Stop (V)</label><input type="number" id="ch1LinkStop" value="0.5" step="any"/></div>
+            <div class="field"><label>Steps</label><input type="number" id="ch1LinkSteps" value="6" min="2"/></div>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <div class="field"><label id="ch1LinkComplLabel">Current compliance (A)</label><input type="number" id="ch1LinkCompl" value="21" step="any"/></div>
+            <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn primary" onclick="runLinkedSweep(1)">Run Linked Sweep</button></div>
+          </div>
+        </div>
+        <div class="sweep-chart" id="ch1Chart" style="margin-top:8px;display:none"><canvas id="ch1Canvas"></canvas></div>
+        <div class="sweep-datasets" id="ch1Datasets"></div>
+        <div class="sweep-toolbar" id="ch1SwToolbar" style="display:none">
+          <button class="btn sm" onclick="downloadAllSweeps(1)">Download Selected (CSV)</button>
+          <button class="btn sm danger" onclick="clearAllSweeps(1)">Clear All</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Channel 2 -->
+  <div class="channel-panel" id="ch2Panel">
+    <div class="ch-title">
+      <h2>Channel 2</h2>
+      <span class="output-badge off" id="ch2OutputBadge">OFF</span>
+      <div style="flex:1"></div>
+      <button class="btn success sm" onclick="outputOn(2)">ON</button>
+      <button class="btn danger sm" onclick="outputOff(2)">OFF</button>
+    </div>
+
+    <div class="card">
+      <h3>Live Measurements</h3>
+      <div class="grid-2">
+        <div><div class="measurement voltage" id="ch2MeasV">-.--- <span class="unit">V</span></div></div>
+        <div><div class="measurement current" id="ch2MeasI">-.--- <span class="unit">A</span></div></div>
+      </div>
+      <div style="margin-top:4px">
+        <div class="measurement resistance" style="font-size:18px" id="ch2MeasR">-.--- <span class="unit">&Omega;</span></div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('ch2','source')">Source</div>
+      <div class="tab" onclick="showTab('ch2','compliance')">Compliance</div>
+      <div class="tab" onclick="showTab('ch2','sense')">Sense</div>
+      <div class="tab" onclick="showTab('ch2','sweep')">Sweep</div>
+    </div>
+
+    <div class="tab-content active" id="ch2-source">
+      <div class="card">
+        <div class="row">
+          <div class="field"><label>Source Function</label>
+            <select id="ch2SrcFunc" onchange="setSrcFunc(2)"><option value="VOLT">Voltage (V)</option><option value="CURR">Current (A)</option></select>
+          </div>
+          <div class="field"><label>Source Range</label>
+            <select id="ch2SrcRange" onchange="setSrcRange(2)"><option value="AUTO">Auto</option><option value="0.2">200 mV / 200 nA</option><option value="2">2 V / 2 uA</option><option value="20">20 V / 20 uA</option><option value="200">200 V / 200 mA</option></select>
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="field"><label>Source Level</label><input type="number" id="ch2SrcLevel" step="any" value="0"/></div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn primary" onclick="applySource(2)">Apply</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="ch2-compliance">
+      <div class="card">
+        <div class="row">
+          <div class="field"><label>Voltage Compliance (V)</label><input type="number" id="ch2ComplV" step="any" value="21"/></div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn" onclick="setCompliance(2,'voltage')">Set</button></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="field"><label>Current Compliance (A)</label><input type="number" id="ch2ComplI" step="any" value="0.1"/></div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn" onclick="setCompliance(2,'current')">Set</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="ch2-sense">
+      <div class="card">
+        <div class="row">
+          <div class="field"><label>Sense Function</label>
+            <select id="ch2SenseFunc"><option value="VOLT">Voltage</option><option value="CURR">Current</option><option value="RES">Resistance</option></select>
+          </div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn" onclick="setSenseFunc(2)">Set</button></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="field"><label>NPLC (0.01 - 10)</label><input type="number" id="ch2NPLC" step="any" value="1"/></div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn" onclick="setNPLC(2)">Set</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="ch2-sweep">
+      <div class="card">
+        <h3>Primary Sweep (Ch2)</h3>
+        <div class="row">
+          <div class="field"><label>Sweep Type</label>
+            <select id="ch2SwType" onchange="updateSwUnits(2)"><option value="voltage">Voltage</option><option value="current">Current</option></select>
+          </div>
+          <div class="field"><label id="ch2SwStartLabel">Start (V)</label><input type="number" id="ch2SwStart" value="0" step="any"/></div>
+          <div class="field"><label id="ch2SwStopLabel">Stop (V)</label><input type="number" id="ch2SwStop" value="5" step="any"/></div>
+          <div class="field"><label>Points</label><input type="number" id="ch2SwPts" value="101" min="2"/></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="field"><label id="ch2SwComplLabel">Current compliance (A)</label><input type="number" id="ch2SwCompl" value="0.1" step="any"/></div>
+          <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn primary" onclick="runSingleSweep(2)">Run Sweep</button></div>
+        </div>
+        <div class="card" style="margin-top:8px;border:1px dashed var(--accent)">
+          <h3>Linked Sweep (Step Ch1 while sweeping Ch2)</h3>
+          <div class="row">
+            <div class="field"><label>Step Type</label>
+              <select id="ch2LinkType" onchange="updateLinkComplLabel(2)"><option value="voltage">Voltage</option><option value="current">Current</option></select>
+            </div>
+            <div class="field"><label id="ch2LinkStartLabel">Start (V)</label><input type="number" id="ch2LinkStart" value="0" step="any"/></div>
+            <div class="field"><label id="ch2LinkStopLabel">Stop (V)</label><input type="number" id="ch2LinkStop" value="0.5" step="any"/></div>
+            <div class="field"><label>Steps</label><input type="number" id="ch2LinkSteps" value="6" min="2"/></div>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <div class="field"><label id="ch2LinkComplLabel">Current compliance (A)</label><input type="number" id="ch2LinkCompl" value="21" step="any"/></div>
+            <div class="field" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn primary" onclick="runLinkedSweep(2)">Run Linked Sweep</button></div>
+          </div>
+        </div>
+        <div class="sweep-chart" id="ch2Chart" style="margin-top:8px;display:none"><canvas id="ch2Canvas"></canvas></div>
+        <div class="sweep-datasets" id="ch2Datasets"></div>
+        <div class="sweep-toolbar" id="ch2SwToolbar" style="display:none">
+          <button class="btn sm" onclick="downloadAllSweeps(2)">Download Selected (CSV)</button>
+          <button class="btn sm danger" onclick="clearAllSweeps(2)">Clear All</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="bottom-panel">
+  <div style="display:flex;gap:8px;align-items:center">
+    <span style="color:var(--accent);font-family:monospace;font-size:12px">SCPI&gt;</span>
+    <input type="text" id="scpiInput" placeholder="Enter SCPI command (e.g. *IDN?)"
+      style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font-family:monospace;font-size:12px"
+      onkeydown="if(event.key==='Enter')sendSCPI()"/>
+    <button class="btn sm" onclick="sendSCPI()">Send</button>
+  </div>
+  <div class="terminal" id="scpiTerminal" style="margin-top:6px"></div>
+</div>
+
+<script>
+/* ── Config ─────────────────────────────────────── */
+const API = (() => {
+  const loc = window.location;
+  // Strip trailing slash and /viewer
+  let base = loc.origin + loc.pathname.replace(/\/+$/, '').replace(/\/viewer$/, '');
+  return base;
+})();
+
+const WS_URL = (() => {
+  const loc = window.location;
+  const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+  let path = loc.pathname.replace(/\/+$/, '').replace(/\/viewer$/, '');
+  return proto + '//' + loc.host + path;
+})();
+
+let ws = null;
+let smuConnected = false;
+
+/* ── Toast notifications ────────────────────────── */
+function toast(msg, type = 'info', duration = 3000) {
+  const container = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => { el.remove(); }, duration);
+}
+
+/* ── API helpers ────────────────────────────────── */
+async function api(method, path, body, _retried) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const r = await fetch(API + path, opts);
+    const data = await r.json();
+    // Auto-reconnect on "Not connected" and retry once
+    if (data.error && data.error === 'Not connected' && !_retried) {
+      const cr = await fetch(API + '/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const cd = await cr.json();
+      if (cd.connected) {
+        setConnected(true, cd.identity);
+        return api(method, path, body, true);
+      }
+    }
+    if (data.error && r.status >= 400) {
+      toast(data.error, 'error');
+      return data;
+    }
+    return data;
+  } catch (e) {
+    toast('Network error: ' + e.message, 'error');
+    return { error: e.message };
+  }
+}
+
+/** Ensure SMU is connected before running a command. */
+async function ensureConnected() {
+  if (smuConnected) return true;
+  toast('Connecting to SMU...', 'info', 2000);
+  const r = await api('POST', '/connect');
+  if (r.connected) {
+    setConnected(true, r.identity);
+    connectWS();
+    toast('Connected to SMU', 'success');
+    return true;
+  } else {
+    toast('Failed to connect to SMU: ' + (r.error || 'unknown'), 'error', 5000);
+    return false;
+  }
+}
+
+/* ── Connection ─────────────────────────────────── */
+async function toggleConnection() {
+  if (smuConnected) {
+    await api('POST', '/disconnect');
+    setConnected(false);
+    toast('Disconnected', 'info');
+  } else {
+    await ensureConnected();
+  }
+}
+
+function setConnected(state, idn) {
+  smuConnected = state;
+  document.getElementById('statusDot').className = 'status-dot' + (state ? ' connected' : '');
+  document.getElementById('btnConnect').textContent = state ? 'Disconnect' : 'Connect';
+  document.getElementById('btnConnect').className = 'btn ' + (state ? 'danger' : 'primary');
+  document.getElementById('identity').textContent = idn || (state ? 'Connected' : 'Not connected');
+  document.getElementById('pollStatus').textContent = 'Polling: ' + (state ? 'ON' : 'OFF');
+}
+
+/* ── WebSocket for live data ────────────────────── */
+function connectWS() {
+  if (ws) { try { ws.close(); } catch {} ws = null; }
+  try {
+    ws = new WebSocket(WS_URL);
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'state') updateUI(msg.data);
+        else if (msg.type === 'scpi') appendScpiEntry(msg.entry);
+      } catch {}
+    };
+    ws.onclose = () => { ws = null; startHTTPPolling(); };
+    ws.onerror = () => { ws = null; startHTTPPolling(); };
+  } catch {
+    // WS not available (e.g. sandboxed iframe) — fall back to polling
+    startHTTPPolling();
+  }
+}
+
+/* ── HTTP polling fallback (when WS unavailable) ── */
+let httpPollTimer = null;
+function startHTTPPolling() {
+  if (httpPollTimer) return;
+  httpPollTimer = setInterval(async () => {
+    try {
+      const r = await api('GET', '/status');
+      if (r.connected) {
+        if (!smuConnected) setConnected(true, r.identity);
+        updateUI(r);
+      }
+    } catch {}
+  }, 800);
+}
+
+/* ── UI Update ──────────────────────────────────── */
+function fmtSI(val, unit) {
+  if (val === null || val === undefined || isNaN(val)) return '-.--- <span class="unit">' + unit + '</span>';
+  const abs = Math.abs(val);
+  let prefix = '', scaled = val;
+  if (abs >= 1e6) { prefix = 'M'; scaled = val / 1e6; }
+  else if (abs >= 1e3) { prefix = 'k'; scaled = val / 1e3; }
+  else if (abs >= 1) { prefix = ''; scaled = val; }
+  else if (abs >= 1e-3) { prefix = 'm'; scaled = val / 1e-3; }
+  else if (abs >= 1e-6) { prefix = '\u00b5'; scaled = val / 1e-6; }
+  else if (abs >= 1e-9) { prefix = 'n'; scaled = val / 1e-9; }
+  else if (abs >= 1e-12) { prefix = 'p'; scaled = val / 1e-12; }
+  else { prefix = ''; scaled = val; }
+  return scaled.toFixed(4) + ' <span class="unit">' + prefix + unit + '</span>';
+}
+
+function updateUI(state) {
+  if (!state || !state.channels) return;
+  for (const c of [1, 2]) {
+    const ch = state.channels[c];
+    if (!ch || ch.error) continue;
+    const p = 'ch' + c;
+
+    const badge = document.getElementById(p + 'OutputBadge');
+    badge.textContent = ch.outputEnabled ? 'ON' : 'OFF';
+    badge.className = 'output-badge ' + (ch.outputEnabled ? 'on' : 'off');
+
+    document.getElementById(p + 'MeasV').innerHTML = fmtSI(ch.measuredVoltage, 'V');
+    document.getElementById(p + 'MeasI').innerHTML = fmtSI(ch.measuredCurrent, 'A');
+    document.getElementById(p + 'MeasR').innerHTML = fmtSI(ch.measuredResistance, '\u03A9');
+
+    const funcSel = document.getElementById(p + 'SrcFunc');
+    if (ch.sourceFunction) {
+      funcSel.value = ch.sourceFunction.toUpperCase().includes('VOLT') ? 'VOLT' : 'CURR';
+    }
+
+    const levelInput = document.getElementById(p + 'SrcLevel');
+    if (document.activeElement !== levelInput) {
+      levelInput.value = funcSel.value === 'VOLT' ? ch.sourceVoltage : ch.sourceCurrent;
+    }
+  }
+}
+
+/* ── Output control (auto-connects) ─────────────── */
+async function outputOn(ch) {
+  if (!await ensureConnected()) return;
+  const r = await api('POST', '/output/on', { channel: ch });
+  if (!r.error) toast('Channel ' + ch + ' output ON', 'success', 2000);
+}
+async function outputOff(ch) {
+  if (!await ensureConnected()) return;
+  const r = await api('POST', '/output/off', { channel: ch });
+  if (!r.error) toast('Channel ' + ch + ' output OFF', 'info', 2000);
+}
+async function allOff() {
+  const r = await api('POST', '/output/all-off');
+  if (!r.error) toast('All outputs OFF', 'info', 2000);
+}
+
+/* ── Source ──────────────────────────────────────── */
+async function setSrcFunc(ch) {
+  if (!await ensureConnected()) return;
+  const mode = document.getElementById('ch' + ch + 'SrcFunc').value;
+  await api('POST', '/source/function', { channel: ch, mode });
+}
+
+async function setSrcRange(ch) {
+  if (!await ensureConnected()) return;
+  const range = document.getElementById('ch' + ch + 'SrcRange').value;
+  const func = document.getElementById('ch' + ch + 'SrcFunc').value;
+  if (func === 'VOLT') {
+    await api('POST', '/source/voltage-range', { channel: ch, range: range === 'AUTO' ? 'AUTO' : parseFloat(range) });
+  } else {
+    await api('POST', '/source/current-range', { channel: ch, range: range === 'AUTO' ? 'AUTO' : parseFloat(range) });
+  }
+}
+
+async function applySource(ch) {
+  if (!await ensureConnected()) return;
+  const func = document.getElementById('ch' + ch + 'SrcFunc').value;
+  const val = parseFloat(document.getElementById('ch' + ch + 'SrcLevel').value);
+  if (func === 'VOLT') {
+    await api('POST', '/source/voltage', { channel: ch, value: val });
+  } else {
+    await api('POST', '/source/current', { channel: ch, value: val });
+  }
+  toast('Source set: ' + val + (func === 'VOLT' ? ' V' : ' A'), 'success', 2000);
+}
+
+/* ── Compliance ─────────────────────────────────── */
+async function setCompliance(ch, type) {
+  if (!await ensureConnected()) return;
+  if (type === 'voltage') {
+    const val = parseFloat(document.getElementById('ch' + ch + 'ComplV').value);
+    await api('POST', '/compliance/voltage', { channel: ch, value: val });
+    toast('Voltage compliance: ' + val + ' V', 'success', 2000);
+  } else {
+    const val = parseFloat(document.getElementById('ch' + ch + 'ComplI').value);
+    await api('POST', '/compliance/current', { channel: ch, value: val });
+    toast('Current compliance: ' + val + ' A', 'success', 2000);
+  }
+}
+
+/* ── Sense ──────────────────────────────────────── */
+async function setSenseFunc(ch) {
+  if (!await ensureConnected()) return;
+  const func = document.getElementById('ch' + ch + 'SenseFunc').value;
+  await api('POST', '/sense/function', { channel: ch, func });
+}
+async function setNPLC(ch) {
+  if (!await ensureConnected()) return;
+  const nplc = parseFloat(document.getElementById('ch' + ch + 'NPLC').value);
+  const func = document.getElementById('ch' + ch + 'SenseFunc').value;
+  await api('POST', '/sense/nplc', { channel: ch, func, nplc });
+  toast('NPLC set to ' + nplc, 'success', 2000);
+}
+
+/* ── Sweep ──────────────────────────────────────── */
+const sweepStore = { 1: [], 2: [] };
+const SWEEP_COLORS = ['#58a6ff','#3fb950','#f85149','#d29922','#db6d28','#bc8cff','#39d353','#f778ba','#79c0ff','#ffa657'];
+let sweepIdCounter = 0;
+
+function updateSwUnits(ch) {
+  const swType = document.getElementById('ch' + ch + 'SwType').value;
+  const label = document.getElementById('ch' + ch + 'SwComplLabel');
+  const startLabel = document.getElementById('ch' + ch + 'SwStartLabel');
+  const stopLabel = document.getElementById('ch' + ch + 'SwStopLabel');
+  if (swType === 'current') {
+    label.textContent = 'Voltage compliance (V)';
+    startLabel.textContent = 'Start (A)';
+    stopLabel.textContent = 'Stop (A)';
+  } else {
+    label.textContent = 'Current compliance (A)';
+    startLabel.textContent = 'Start (V)';
+    stopLabel.textContent = 'Stop (V)';
+  }
+}
+
+function updateLinkComplLabel(ch) {
+  const stepType = document.getElementById('ch' + ch + 'LinkType').value;
+  const label = document.getElementById('ch' + ch + 'LinkComplLabel');
+  const startLabel = document.getElementById('ch' + ch + 'LinkStartLabel');
+  const stopLabel = document.getElementById('ch' + ch + 'LinkStopLabel');
+  if (stepType === 'current') {
+    label.textContent = 'Voltage compliance (V)';
+    startLabel.textContent = 'Start (A)';
+    stopLabel.textContent = 'Stop (A)';
+  } else {
+    label.textContent = 'Current compliance (A)';
+    startLabel.textContent = 'Start (V)';
+    stopLabel.textContent = 'Stop (V)';
+  }
+}
+
+function fmtSweepVal(val, type) {
+  const abs = Math.abs(val);
+  if (type === 'current') {
+    if (abs >= 1) return val.toFixed(3) + 'A';
+    if (abs >= 1e-3) return (val * 1e3).toFixed(2) + 'mA';
+    if (abs >= 1e-6) return (val * 1e6).toFixed(2) + 'uA';
+    return (val * 1e9).toFixed(2) + 'nA';
+  }
+  return val.toFixed(3) + 'V';
+}
+
+async function runSingleSweep(ch) {
+  if (!await ensureConnected()) return;
+  const swType = document.getElementById('ch' + ch + 'SwType').value;
+  const start = parseFloat(document.getElementById('ch' + ch + 'SwStart').value);
+  const stop = parseFloat(document.getElementById('ch' + ch + 'SwStop').value);
+  const points = parseInt(document.getElementById('ch' + ch + 'SwPts').value);
+  const compliance = parseFloat(document.getElementById('ch' + ch + 'SwCompl').value);
+
+  toast('Configuring ' + swType + ' sweep...', 'info', 2000);
+  await api('POST', '/sweep/' + swType, { channel: ch, start, stop, points, compliance });
+  toast('Running sweep...', 'info', 5000);
+  const data = await api('POST', '/sweep/execute', { channel: ch });
+
+  if (data.voltage && data.current) {
+    const now = new Date();
+    const ts = now.toLocaleTimeString();
+    const sweepDesc = fmtSweepVal(start, swType) + '→' + fmtSweepVal(stop, swType);
+    const label = sweepDesc + ', ' + points + 'pts (' + ts + ')';
+    addSweepDataset(ch, label, data.voltage, data.current);
+    toast('Sweep complete: ' + data.voltage.length + ' points', 'success');
+  }
+}
+
+async function runLinkedSweep(primaryCh) {
+  if (!await ensureConnected()) return;
+  const secCh = primaryCh === 1 ? 2 : 1;
+
+  // Primary sweep params
+  const swType = document.getElementById('ch' + primaryCh + 'SwType').value;
+  const start = parseFloat(document.getElementById('ch' + primaryCh + 'SwStart').value);
+  const stop = parseFloat(document.getElementById('ch' + primaryCh + 'SwStop').value);
+  const points = parseInt(document.getElementById('ch' + primaryCh + 'SwPts').value);
+  const compliance = parseFloat(document.getElementById('ch' + primaryCh + 'SwCompl').value);
+
+  // Secondary step params
+  const stepType = document.getElementById('ch' + primaryCh + 'LinkType').value;
+  const stepStart = parseFloat(document.getElementById('ch' + primaryCh + 'LinkStart').value);
+  const stepStop = parseFloat(document.getElementById('ch' + primaryCh + 'LinkStop').value);
+  const stepCount = parseInt(document.getElementById('ch' + primaryCh + 'LinkSteps').value);
+  const stepCompl = parseFloat(document.getElementById('ch' + primaryCh + 'LinkCompl').value);
+
+  // Generate step values
+  const stepValues = [];
+  for (let i = 0; i < stepCount; i++) {
+    stepValues.push(stepStart + (stepStop - stepStart) * i / (stepCount - 1));
+  }
+
+  // Set secondary channel source function
+  const secFunc = stepType === 'current' ? 'CURR' : 'VOLT';
+  await api('POST', '/source/function', { channel: secCh, mode: secFunc });
+
+  // Set secondary compliance
+  if (stepType === 'current') {
+    await api('POST', '/compliance/voltage', { channel: secCh, value: stepCompl });
+  } else {
+    await api('POST', '/compliance/current', { channel: secCh, value: stepCompl });
+  }
+
+  // Turn on secondary output
+  await api('POST', '/output/on', { channel: secCh });
+
+  toast('Running linked sweep: ' + stepCount + ' steps...', 'info', 10000);
+
+  try {
+    for (let si = 0; si < stepValues.length; si++) {
+      const stepVal = stepValues[si];
+
+      // Set secondary channel level
+      if (stepType === 'current') {
+        await api('POST', '/source/current', { channel: secCh, value: stepVal });
+      } else {
+        await api('POST', '/source/voltage', { channel: secCh, value: stepVal });
+      }
+
+      // Small settle delay
+      await new Promise(r => setTimeout(r, 200));
+
+      // Configure and run primary sweep
+      await api('POST', '/sweep/' + swType, { channel: primaryCh, start, stop, points, compliance });
+      const data = await api('POST', '/sweep/execute', { channel: primaryCh });
+
+      if (data.voltage && data.current) {
+        const now = new Date();
+        const ts = now.toLocaleTimeString();
+        const priDesc = fmtSweepVal(start, swType) + '→' + fmtSweepVal(stop, swType);
+        const secDesc = fmtSweepVal(stepVal, stepType);
+        const label = priDesc + '@' + secDesc + ', ' + points + 'pts (' + ts + ')';
+        addSweepDataset(primaryCh, label, data.voltage, data.current);
+      }
+
+      toast('Step ' + (si + 1) + '/' + stepCount + ' complete', 'info', 1500);
+    }
+  } finally {
+    // Always turn off both channels, even if sweep errors out
+    await api('POST', '/output/off', { channel: primaryCh });
+    await api('POST', '/output/off', { channel: secCh });
+  }
+  toast('Linked sweep complete: ' + stepCount + ' sweeps', 'success');
+}
+
+function addSweepDataset(ch, label, voltage, current) {
+  const id = sweepIdCounter++;
+  const color = SWEEP_COLORS[sweepStore[ch].length % SWEEP_COLORS.length];
+  sweepStore[ch].push({ id, label, color, voltage, current, visible: true });
+  renderSweepDatasets(ch);
+  redrawSweepChart(ch);
+}
+
+function renderSweepDatasets(ch) {
+  const container = document.getElementById('ch' + ch + 'Datasets');
+  const toolbar = document.getElementById('ch' + ch + 'SwToolbar');
+  const sets = sweepStore[ch];
+  if (sets.length === 0) { container.innerHTML = ''; toolbar.style.display = 'none'; return; }
+  toolbar.style.display = 'flex';
+  container.innerHTML = sets.map((s, idx) => `
+    <div class="sweep-dataset" data-id="${s.id}">
+      <div class="swatch" style="background:${s.color}"></div>
+      <label>
+        <input type="checkbox" ${s.visible ? 'checked' : ''} onchange="toggleSweep(${ch},${s.id},this.checked)"/>
+        <span>#${idx + 1} ${esc(s.label)}</span>
+        <span class="meta">${s.voltage.length} pts</span>
+      </label>
+      <div class="actions">
+        <button title="Download CSV" onclick="downloadSweep(${ch},${s.id})">CSV</button>
+        <button title="Delete" onclick="deleteSweep(${ch},${s.id})">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleSweep(ch, id, visible) {
+  const s = sweepStore[ch].find(d => d.id === id);
+  if (s) s.visible = visible;
+  redrawSweepChart(ch);
+}
+
+function deleteSweep(ch, id) {
+  sweepStore[ch] = sweepStore[ch].filter(d => d.id !== id);
+  renderSweepDatasets(ch);
+  redrawSweepChart(ch);
+}
+
+function clearAllSweeps(ch) {
+  sweepStore[ch] = [];
+  renderSweepDatasets(ch);
+  redrawSweepChart(ch);
+}
+
+function sweepToCSV(sets) {
+  const maxLen = Math.max(...sets.map(s => s.voltage.length));
+  let headers = [];
+  sets.forEach((s, i) => { headers.push('V' + (i+1) + ' (V)', 'I' + (i+1) + ' (A)', 'R' + (i+1) + ' (Ohm)'); });
+  let csv = headers.join(',') + '\n';
+  for (let r = 0; r < maxLen; r++) {
+    let row = [];
+    sets.forEach(s => {
+      if (r < s.voltage.length) {
+        const v = s.voltage[r], i = s.current[r];
+        const res = i !== 0 ? Math.abs(v / i) : '';
+        row.push(v, i, res);
+      } else {
+        row.push('', '', '');
+      }
+    });
+    csv += row.join(',') + '\n';
+  }
+  return csv;
+}
+
+function triggerDownload(csv, filename) {
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadSweep(ch, id) {
+  const s = sweepStore[ch].find(d => d.id === id);
+  if (!s) return;
+  triggerDownload(sweepToCSV([s]), 'sweep_ch' + ch + '_' + s.id + '.csv');
+}
+
+function downloadAllSweeps(ch) {
+  const selected = sweepStore[ch].filter(s => s.visible);
+  if (selected.length === 0) { toast('No datasets selected', 'info', 2000); return; }
+  triggerDownload(sweepToCSV(selected), 'sweeps_ch' + ch + '_all.csv');
+}
+
+function redrawSweepChart(ch) {
+  const container = document.getElementById('ch' + ch + 'Chart');
+  const visible = sweepStore[ch].filter(s => s.visible);
+  if (visible.length === 0) { container.style.display = 'none'; return; }
+  container.style.display = 'block';
+  const canvas = document.getElementById('ch' + ch + 'Canvas');
+  const ctx = canvas.getContext('2d');
+  const rect = container.getBoundingClientRect();
+  canvas.width = rect.width * 2;
+  canvas.height = rect.height * 2;
+  ctx.scale(2, 2);
+  const w = rect.width, h = rect.height;
+
+  const pad = { top: 20, right: 20, bottom: 30, left: 60 };
+  const pw = w - pad.left - pad.right;
+  const ph = h - pad.top - pad.bottom;
+
+  let vMin = Infinity, vMax = -Infinity, iMin = Infinity, iMax = -Infinity;
+  visible.forEach(s => {
+    s.voltage.forEach(v => { if (v < vMin) vMin = v; if (v > vMax) vMax = v; });
+    s.current.forEach(i => { if (i < iMin) iMin = i; if (i > iMax) iMax = i; });
+  });
+  const vRange = vMax - vMin || 1;
+  const iRange = iMax - iMin || 1e-9;
+
+  ctx.clearRect(0, 0, w, h);
+
+  ctx.strokeStyle = '#30363d'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (ph / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+  }
+
+  ctx.fillStyle = '#8b949e'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (ph / 4) * i;
+    ctx.fillText((iMax - (iRange / 4) * i).toExponential(1), pad.left - 4, y + 3);
+  }
+  ctx.textAlign = 'center';
+  for (let i = 0; i <= 4; i++) {
+    const x = pad.left + (pw / 4) * i;
+    ctx.fillText((vMin + (vRange / 4) * i).toFixed(2) + 'V', x, h - 6);
+  }
+
+  visible.forEach(s => {
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.5; ctx.beginPath();
+    for (let i = 0; i < s.voltage.length; i++) {
+      const x = pad.left + ((s.voltage[i] - vMin) / vRange) * pw;
+      const y = pad.top + ph - ((s.current[i] - iMin) / iRange) * ph;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  });
+
+  // Legend
+  ctx.font = '10px monospace'; ctx.textAlign = 'left';
+  visible.forEach((s, i) => {
+    const lx = pad.left + 8;
+    const ly = pad.top + 10 + i * 14;
+    ctx.fillStyle = s.color;
+    ctx.fillRect(lx, ly - 6, 8, 8);
+    ctx.fillStyle = '#e6edf3';
+    ctx.fillText('#' + (sweepStore[ch].indexOf(s) + 1), lx + 12, ly + 2);
+  });
+}
+
+/* ── System ─────────────────────────────────────── */
+async function resetSMU() {
+  if (!await ensureConnected()) return;
+  await api('POST', '/reset');
+  toast('SMU reset (*RST)', 'info');
+}
+async function clearSMU() {
+  if (!await ensureConnected()) return;
+  await api('POST', '/clear');
+  toast('Error queue cleared (*CLS)', 'info');
+}
+async function checkErrors() {
+  if (!await ensureConnected()) return;
+  const r = await api('GET', '/errors');
+  termLog('SYST:ERR?', r.error, false);
+}
+
+/* ── Tabs ───────────────────────────────────────── */
+function showTab(panel, tab) {
+  const parent = document.getElementById(panel + 'Panel');
+  parent.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  parent.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  const idx = ['source','compliance','sense','sweep'].indexOf(tab);
+  if (idx >= 0) {
+    parent.querySelectorAll('.tab')[idx]?.classList.add('active');
+    document.getElementById(panel + '-' + tab)?.classList.add('active');
+  }
+}
+
+/* ── SCPI Terminal ──────────────────────────────── */
+async function sendSCPI() {
+  if (!await ensureConnected()) return;
+  const input = document.getElementById('scpiInput');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  input.value = '';
+
+  if (cmd.includes('?')) {
+    const r = await api('POST', '/scpi/query', { command: cmd });
+    termLog(cmd, r.result || r.error, !!r.error);
+  } else {
+    const r = await api('POST', '/scpi/write', { command: cmd });
+    termLog(cmd, r.error || 'OK', !!r.error);
+  }
+}
+
+function termLog(cmd, resp, isErr) {
+  const term = document.getElementById('scpiTerminal');
+  const cls = isErr ? 'err' : 'resp';
+  term.innerHTML += '<div><span class="cmd">&gt; ' + esc(cmd) + '</span></div>';
+  term.innerHTML += '<div><span class="' + cls + '">' + esc(resp) + '</span></div>';
+  term.scrollTop = term.scrollHeight;
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ── SCPI log from server (all commands, not just manual) ── */
+let lastScpiTs = 0;
+
+function appendScpiEntry(entry) {
+  const term = document.getElementById('scpiTerminal');
+  const cmd = esc(entry.cmd);
+  let html = '<div><span class="cmd">&gt; ' + cmd + '</span>';
+  if (entry.response !== null) {
+    html += ' <span class="resp">' + esc(entry.response) + '</span>';
+  }
+  html += '</div>';
+  term.innerHTML += html;
+  // Keep terminal scrolled and trimmed
+  while (term.children.length > 500) term.removeChild(term.firstChild);
+  term.scrollTop = term.scrollHeight;
+  if (entry.ts) lastScpiTs = entry.ts;
+}
+
+async function loadScpiHistory() {
+  try {
+    const r = await api('GET', '/scpi/log');
+    if (r.log) r.log.forEach(e => appendScpiEntry(e));
+  } catch {}
+}
+
+/* ── Init ───────────────────────────────────────── */
+(async () => {
+  try {
+    const r = await api('GET', '/status');
+    if (r.connected) {
+      setConnected(true, r.identity);
+      updateUI(r);
+    }
+  } catch {}
+  // Load SCPI command history
+  await loadScpiHistory();
+  // Always try WS, and start HTTP polling as fallback
+  connectWS();
+  // Ensure HTTP polling starts after short delay if WS didn't connect
+  setTimeout(() => { if (!ws || ws.readyState !== WebSocket.OPEN) startHTTPPolling(); }, 2000);
+})();
+</script>
+</body>
+</html>
